@@ -7,8 +7,8 @@ import android.os.Bundle
 import android.provider.Settings
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import com.jarvis.app.ai.BackendClient
 import com.jarvis.app.ai.CommandExecutor
-import com.jarvis.app.ai.GroqClient
 import com.jarvis.app.databinding.ActivityMainBinding
 import com.jarvis.app.voice.VoiceManager
 import kotlinx.coroutines.CoroutineScope
@@ -49,7 +49,7 @@ class MainActivity : AppCompatActivity() {
         // Appel réseau -> jamais sur le thread principal
         CoroutineScope(Dispatchers.Main).launch {
             val action = withContext(Dispatchers.IO) {
-                runCatching { GroqClient.decideAction(text) }
+                runCatching { BackendClient.decideAction(text) }
                     .getOrElse { com.jarvis.app.ai.JarvisAction.Speak("Erreur réseau : ${it.message}") }
             }
             val reply = CommandExecutor.execute(this@MainActivity, action)
