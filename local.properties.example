@@ -1,6 +1,7 @@
 # Copie ce fichier en "local.properties" (à la racine, à côté de settings.gradle.kts)
-# et remplis tes vraies clés. Ce fichier NE DOIT JAMAIS être commit sur git.
+# et remplis tes vraies valeurs. Ce fichier NE DOIT JAMAIS être commit sur git.
 sdk.dir=/chemin/vers/ton/Android/sdk
 
-GROQ_API_KEY=colle_ta_cle_groq_ici
-GEMINI_API_KEY=colle_ta_cle_gemini_ici
+# L'app ne parle plus qu'à ton backend Render — plus de clés Groq/Gemini ici.
+BACKEND_URL=https://jarvis-43io.onrender.com
+APP_SHARED_SECRET=le_meme_secret_que_celui_mis_sur_render
