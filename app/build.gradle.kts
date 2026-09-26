@@ -14,17 +14,17 @@ android {
         versionCode = 1
         versionName = "0.1"
 
-        // Mets tes clés API dans local.properties (jamais dans le code en dur / git),
-        // puis lis-les ici. Exemple dans local.properties :
-        // GROQ_API_KEY=xxxx
-        // GEMINI_API_KEY=xxxx
+        // L'app ne connaît plus les clés Groq/Gemini : elle ne parle qu'à ton backend Render.
+        // Mets ça dans local.properties (jamais dans le code en dur / git) :
+        // BACKEND_URL=https://jarvis-43io.onrender.com
+        // APP_SHARED_SECRET=le_meme_secret_que_sur_render
         val localProps = java.util.Properties()
         val localFile = rootProject.file("local.properties")
         if (localFile.exists()) {
             localProps.load(localFile.inputStream())
         }
-        buildConfigField("String", "GROQ_API_KEY", "\"${localProps.getProperty("GROQ_API_KEY", "")}\"")
-        buildConfigField("String", "GEMINI_API_KEY", "\"${localProps.getProperty("GEMINI_API_KEY", "")}\"")
+        buildConfigField("String", "BACKEND_URL", "\"${localProps.getProperty("BACKEND_URL", "https://jarvis-43io.onrender.com")}\"")
+        buildConfigField("String", "APP_SHARED_SECRET", "\"${localProps.getProperty("APP_SHARED_SECRET", "")}\"")
     }
 
     buildFeatures {
