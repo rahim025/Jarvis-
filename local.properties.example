@@ -1,0 +1,6 @@
+# Copie ce fichier en "local.properties" (à la racine, à côté de settings.gradle.kts)
+# et remplis tes vraies clés. Ce fichier NE DOIT JAMAIS être commit sur git.
+sdk.dir=/chemin/vers/ton/Android/sdk
+
+GROQ_API_KEY=colle_ta_cle_groq_ici
+GEMINI_API_KEY=colle_ta_cle_gemini_ici
