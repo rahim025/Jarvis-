@@ -18,9 +18,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Installer le SDK Android
-        uses: android-actions/setup-android@v3
-
       - name: Créer local.properties avec les secrets
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
