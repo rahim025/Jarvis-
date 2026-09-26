@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Jarvis</string>
+    <string name="accessibility_service_description">Permet à Jarvis de lire l\'écran et d\'agir dessus (ouvrir des apps, cliquer, remplir des champs) pour exécuter tes commandes vocales.</string>
+</resources>
