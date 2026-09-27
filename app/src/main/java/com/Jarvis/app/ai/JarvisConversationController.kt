@@ -89,7 +89,7 @@ class JarvisConversationController(
 
         CoroutineScope(Dispatchers.Main).launch {
             val action = withContext(Dispatchers.IO) {
-                runCatching { BackendClient.decideAction(text) }
+                runCatching { BackendClient.decideAction(text, UserIdentity.getSafe(context)) }
                     .getOrElse { JarvisAction.Speak("Erreur réseau : ${it.message}") }
             }
             val reply = CommandExecutor.execute(context, action)
