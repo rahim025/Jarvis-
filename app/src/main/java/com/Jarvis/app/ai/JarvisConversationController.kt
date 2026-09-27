@@ -24,7 +24,9 @@ import java.util.TimeZone
 class JarvisConversationController(
     private val context: Context,
     private val voiceManager: VoiceManager,
-    private val onStatus: (String) -> Unit
+    private val onStatus: (String) -> Unit,
+    /** Reflète l'état sur l'avatar HUD : "idle", "listening", "speaking", "executing". */
+    private val onAvatarState: (String) -> Unit = {}
 ) {
     var conversationActive = false
         private set
@@ -44,7 +46,7 @@ class JarvisConversationController(
 
     init {
         voiceManager.onSpeakDone = {
-            if (conversationActive) startListeningRound()
+            if (conversationActive) startListeningRound() else onAvatarState("idle")
         }
     }
 
@@ -57,6 +59,7 @@ class JarvisConversationController(
         conversationActive = true
         val greeting = greetingMessage()
         onStatus("Jarvis : $greeting")
+        onAvatarState("speaking")
         voiceManager.speak(greeting)
         // L'écoute démarre automatiquement une fois la salutation terminée (onSpeakDone).
     }
@@ -64,6 +67,7 @@ class JarvisConversationController(
     fun stop() {
         conversationActive = false
         voiceManager.stopListening()
+        onAvatarState("idle")
     }
 
     fun onVoiceError(err: String) {
@@ -73,6 +77,8 @@ class JarvisConversationController(
             Handler(Looper.getMainLooper()).postDelayed({
                 if (conversationActive) startListeningRound()
             }, 900)
+        } else {
+            onAvatarState("idle")
         }
     }
 
@@ -83,10 +89,12 @@ class JarvisConversationController(
             conversationActive = false
             val bye = "Très bien Monsieur, je reste disponible dès que vous avez besoin de moi."
             onStatus("Jarvis : $bye")
+            onAvatarState("speaking")
             voiceManager.speak(bye)
             return
         }
 
+        onAvatarState("executing")
         CoroutineScope(Dispatchers.Main).launch {
             val action = withContext(Dispatchers.IO) {
                 runCatching { BackendClient.decideAction(text, UserIdentity.getSafe(context)) }
@@ -94,6 +102,7 @@ class JarvisConversationController(
             }
             val reply = CommandExecutor.execute(context, action)
             onStatus("Jarvis : $reply")
+            onAvatarState("speaking")
             voiceManager.speak(reply)
             // L'écoute repart automatiquement via onSpeakDone si la conversation est toujours active.
         }
@@ -101,6 +110,7 @@ class JarvisConversationController(
 
     private fun startListeningRound() {
         onStatus("J'écoute...")
+        onAvatarState("listening")
         voiceManager.startListening()
     }
 
