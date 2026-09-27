@@ -3,10 +3,13 @@ package com.jarvis.app.voice
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
 
 /**
@@ -20,11 +23,25 @@ class VoiceManager(
 ) {
     private val speechRecognizer: SpeechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
     private var tts: TextToSpeech? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** Appelé (sur le thread principal) juste après que Jarvis ait fini de parler. */
+    var onSpeakDone: (() -> Unit)? = null
 
     init {
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 tts?.language = Locale.FRENCH
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {}
+                    override fun onDone(utteranceId: String?) {
+                        mainHandler.post { onSpeakDone?.invoke() }
+                    }
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(utteranceId: String?) {
+                        mainHandler.post { onSpeakDone?.invoke() }
+                    }
+                })
             }
         }
     }
