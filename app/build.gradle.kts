@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -18,7 +20,7 @@ android {
         // Mets ça dans local.properties (jamais dans le code en dur / git) :
         // BACKEND_URL=https://jarvis-43io.onrender.com
         // APP_SHARED_SECRET=le_meme_secret_que_sur_render
-        val localProps = java.util.Properties()
+        val localProps = Properties()
         val localFile = rootProject.file("local.properties")
         if (localFile.exists()) {
             localProps.load(localFile.inputStream())
