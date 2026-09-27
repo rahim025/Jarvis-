@@ -25,6 +25,7 @@ class VoiceManager(
     private var tts: TextToSpeech? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var isListening = false
+    private var isDestroyed = false
 
     /** Appelé (sur le thread principal) juste après que Jarvis ait fini de parler. */
     var onSpeakDone: (() -> Unit)? = null
@@ -90,11 +91,13 @@ class VoiceManager(
     }
 
     private fun recreateRecognizer() {
+        if (isDestroyed) return
         runCatching { speechRecognizer.destroy() }
         speechRecognizer = createRecognizer()
     }
 
     fun startListening() {
+        if (isDestroyed) return
         if (isListening) {
             // Une session précédente n'est pas terminée proprement : on l'annule
             // avant d'en relancer une, sinon le moteur renvoie ERROR_CLIENT.
@@ -122,10 +125,12 @@ class VoiceManager(
     }
 
     fun speak(text: String) {
+        if (isDestroyed) return
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis_reply")
     }
 
     fun destroy() {
+        isDestroyed = true
         runCatching { speechRecognizer.destroy() }
         tts?.shutdown()
     }
