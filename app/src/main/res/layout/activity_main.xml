@@ -27,4 +27,11 @@
         android:layout_marginTop="24dp"
         android:text="Activer le contrôle d'écran" />
 
+    <Button
+        android:id="@+id/enableBackgroundButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Activer Jarvis en arrière-plan" />
+
 </LinearLayout>
