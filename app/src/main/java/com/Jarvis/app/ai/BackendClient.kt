@@ -33,7 +33,7 @@ object BackendClient {
     private val BASE_URL = BuildConfig.BACKEND_URL.trimEnd('/')
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
+        .connectTimeout(45, TimeUnit.SECONDS)
         // Le plan gratuit de Render met le service en veille après inactivité ;
         // le premier appel après une pause peut prendre 30-50s à répondre.
         .readTimeout(60, TimeUnit.SECONDS)
