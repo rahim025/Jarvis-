@@ -63,6 +63,7 @@ class JarvisConversationController(
 
     fun stop() {
         conversationActive = false
+        voiceManager.stopListening()
     }
 
     fun onVoiceError(err: String) {
