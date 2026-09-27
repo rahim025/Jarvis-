@@ -16,10 +16,13 @@ sealed class JarvisAction {
     data class Speak(val text: String) : JarvisAction()
     data class OpenApp(val appName: String) : JarvisAction()
     data class SendSms(val contact: String, val message: String) : JarvisAction()
+    data class CallContact(val contact: String) : JarvisAction()
     data class ClickOnScreen(val label: String) : JarvisAction()
     data class TypeText(val text: String) : JarvisAction()
     object GoHome : JarvisAction()
     object GoBack : JarvisAction()
+    object CloseApp : JarvisAction()
+    data class Scroll(val direction: String) : JarvisAction()
 }
 
 /**
@@ -88,10 +91,16 @@ object BackendClient {
     private fun parseAction(name: String, args: JSONObject): JarvisAction = when (name) {
         "open_app" -> JarvisAction.OpenApp(args.getString("app_name"))
         "send_sms" -> JarvisAction.SendSms(args.getString("contact"), args.getString("message"))
+        "call_contact" -> JarvisAction.CallContact(args.getString("contact"))
         "click_on_screen" -> JarvisAction.ClickOnScreen(args.getString("label"))
         "type_text" -> JarvisAction.TypeText(args.getString("text"))
         "go_home" -> JarvisAction.GoHome
         "go_back" -> JarvisAction.GoBack
+        "close_app" -> JarvisAction.CloseApp
+        "scroll_up" -> JarvisAction.Scroll("up")
+        "scroll_down" -> JarvisAction.Scroll("down")
+        "scroll_left" -> JarvisAction.Scroll("left")
+        "scroll_right" -> JarvisAction.Scroll("right")
         else -> JarvisAction.Speak("Action inconnue.")
     }
 }
