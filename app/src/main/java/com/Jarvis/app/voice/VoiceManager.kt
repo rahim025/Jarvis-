@@ -21,9 +21,10 @@ class VoiceManager(
     private val onResult: (String) -> Unit,
     private val onError: (String) -> Unit = {}
 ) {
-    private val speechRecognizer: SpeechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+    private var speechRecognizer: SpeechRecognizer = createRecognizer()
     private var tts: TextToSpeech? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var isListening = false
 
     /** Appelé (sur le thread principal) juste après que Jarvis ait fini de parler. */
     var onSpeakDone: (() -> Unit)? = null
@@ -46,15 +47,18 @@ class VoiceManager(
         }
     }
 
-    fun startListening() {
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.FRENCH)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-        }
-
-        speechRecognizer.setRecognitionListener(object : RecognitionListener {
+    /**
+     * Crée un SpeechRecognizer et lui attache son listener UNE SEULE FOIS.
+     * Le ré-attacher à chaque startListening() (comme avant) laissait le moteur
+     * se "griper" après une erreur : il fallait le détruire/recréer pour qu'il
+     * réponde à nouveau, d'où le blocage sur "Erreur STT: 5" qui ne se résorbait
+     * jamais tout seul.
+     */
+    private fun createRecognizer(): SpeechRecognizer {
+        val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
+        recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onResults(results: Bundle?) {
+                isListening = false
                 val text = results
                     ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     ?.firstOrNull()
@@ -62,6 +66,14 @@ class VoiceManager(
             }
 
             override fun onError(error: Int) {
+                isListening = false
+                // ERROR_CLIENT (5) et ERROR_RECOGNIZER_BUSY (8) laissent souvent le moteur
+                // bloqué : on le recrée immédiatement pour que la tentative suivante fonctionne.
+                if (error == SpeechRecognizer.ERROR_CLIENT ||
+                    error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
+                ) {
+                    mainHandler.post { recreateRecognizer() }
+                }
                 onError("Erreur STT: $error")
             }
 
@@ -74,8 +86,39 @@ class VoiceManager(
             override fun onPartialResults(partialResults: Bundle?) {}
             override fun onEvent(eventType: Int, params: Bundle?) {}
         })
+        return recognizer
+    }
 
-        speechRecognizer.startListening(intent)
+    private fun recreateRecognizer() {
+        runCatching { speechRecognizer.destroy() }
+        speechRecognizer = createRecognizer()
+    }
+
+    fun startListening() {
+        if (isListening) {
+            // Une session précédente n'est pas terminée proprement : on l'annule
+            // avant d'en relancer une, sinon le moteur renvoie ERROR_CLIENT.
+            runCatching { speechRecognizer.cancel() }
+        }
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.FRENCH)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+        }
+
+        isListening = true
+        runCatching { speechRecognizer.startListening(intent) }
+            .onFailure {
+                isListening = false
+                recreateRecognizer()
+                onError("Erreur STT: relance")
+            }
+    }
+
+    /** Coupe une écoute en cours (utilisé quand on arrête la conversation). */
+    fun stopListening() {
+        isListening = false
+        runCatching { speechRecognizer.cancel() }
     }
 
     fun speak(text: String) {
@@ -83,7 +126,7 @@ class VoiceManager(
     }
 
     fun destroy() {
-        speechRecognizer.destroy()
+        runCatching { speechRecognizer.destroy() }
         tts?.shutdown()
     }
 }
