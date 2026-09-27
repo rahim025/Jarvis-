@@ -40,7 +40,13 @@ class MainActivity : AppCompatActivity() {
         )
 
         binding.micButton.setOnClickListener {
-            conversation.activate()
+            if (JarvisForegroundService.isRunning) {
+                binding.statusText.text =
+                    "Jarvis est déjà actif en arrière-plan (bulle). Utilise-la, ou désactive " +
+                    "le mode arrière-plan ci-dessous pour reprendre le micro ici."
+            } else {
+                conversation.activate()
+            }
         }
 
         binding.enableAccessibilityButton.setOnClickListener {
@@ -48,8 +54,26 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.enableBackgroundButton.setOnClickListener {
-            enableBackgroundMode()
+            if (JarvisForegroundService.isRunning) {
+                conversation.stop()
+                stopService(Intent(this, JarvisForegroundService::class.java))
+                binding.statusText.text = "Jarvis en arrière-plan désactivé."
+                updateBackgroundButtonLabel()
+            } else {
+                enableBackgroundMode()
+            }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateBackgroundButtonLabel()
+    }
+
+    private fun updateBackgroundButtonLabel() {
+        binding.enableBackgroundButton.text =
+            if (JarvisForegroundService.isRunning) "Désactiver Jarvis en arrière-plan"
+            else "Activer Jarvis en arrière-plan"
     }
 
     /**
@@ -70,6 +94,7 @@ class MainActivity : AppCompatActivity() {
         val serviceIntent = Intent(this, JarvisForegroundService::class.java)
         ContextCompat.startForegroundService(this, serviceIntent)
         binding.statusText.text = "Jarvis tourne en arrière-plan (bulle flottante active)."
+        binding.enableBackgroundButton.text = "Désactiver Jarvis en arrière-plan"
     }
 
     private fun requestMicPermissionIfNeeded() {

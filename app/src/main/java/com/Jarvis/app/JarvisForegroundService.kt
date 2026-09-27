@@ -27,6 +27,13 @@ import com.jarvis.app.voice.VoiceManager
  */
 class JarvisForegroundService : Service() {
 
+    companion object {
+        /** true tant que le service (et sa bulle) tourne, pour éviter qu'un deuxième
+         *  SpeechRecognizer (celui de MainActivity) n'entre en conflit avec le micro. */
+        var isRunning = false
+            private set
+    }
+
     private lateinit var windowManager: WindowManager
     private lateinit var bubbleView: View
     private lateinit var voiceManager: VoiceManager
@@ -40,6 +47,7 @@ class JarvisForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         startForegroundWithNotification()
         setupVoice()
         setupBubble()
@@ -168,6 +176,7 @@ class JarvisForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        isRunning = false
         conversation.stop()
         voiceManager.destroy()
         if (::bubbleView.isInitialized) {
