@@ -4,21 +4,24 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center"
+    android:background="#020a14"
     android:padding="24dp">
+
+    <WebView
+        android:id="@+id/jarvisAvatar"
+        android:layout_width="220dp"
+        android:layout_height="220dp"
+        android:layout_marginBottom="24dp"
+        android:clickable="true" />
 
     <TextView
         android:id="@+id/statusText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Jarvis est prêt."
+        android:textColor="#eafcff"
         android:textSize="18sp"
         android:layout_marginBottom="32dp" />
-
-    <Button
-        android:id="@+id/micButton"
-        android:layout_width="120dp"
-        android:layout_height="120dp"
-        android:text="🎤" />
 
     <Button
         android:id="@+id/enableAccessibilityButton"
