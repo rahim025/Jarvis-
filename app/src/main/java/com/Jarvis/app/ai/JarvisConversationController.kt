@@ -69,7 +69,7 @@ class JarvisConversationController(
     fun onVoiceError(err: String) {
         onStatus(err)
         // On ne boucle pas indéfiniment sur une erreur de permission.
-        if (conversationActive && err != "Erreur STT: 9") {
+        if (conversationActive && !err.startsWith("Erreur STT: 9")) {
             Handler(Looper.getMainLooper()).postDelayed({
                 if (conversationActive) startListeningRound()
             }, 900)
