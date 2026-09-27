@@ -70,7 +70,7 @@ app.post('/ask', checkSecret, async (req, res) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
+        model: 'openai/gpt-oss-120b',
         tools,
         messages: [
           {
@@ -89,6 +89,7 @@ app.post('/ask', checkSecret, async (req, res) => {
     const message = data.choices?.[0]?.message;
 
     if (!message) {
+      console.error('Réponse Groq invalide:', JSON.stringify(data));
       return res.status(502).json({ error: 'Réponse Groq invalide', raw: data });
     }
 
