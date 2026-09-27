@@ -75,7 +75,7 @@ class VoiceManager(
                 ) {
                     mainHandler.post { recreateRecognizer() }
                 }
-                onError("Erreur STT: $error")
+                onError(sttErrorMessage(error))
             }
 
             // Callbacks non utilisés mais requis par l'interface
@@ -94,6 +94,27 @@ class VoiceManager(
         if (isDestroyed) return
         runCatching { speechRecognizer.destroy() }
         speechRecognizer = createRecognizer()
+    }
+
+    /**
+     * Traduit un code d'erreur SpeechRecognizer en message lisible.
+     * Le préfixe "Erreur STT: <code>" est conservé pour que le code appelant
+     * puisse toujours détecter un code précis via startsWith (ex: la permission refusée).
+     */
+    private fun sttErrorMessage(code: Int): String {
+        val detail = when (code) {
+            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "réseau trop lent, nouvelle tentative."
+            SpeechRecognizer.ERROR_NETWORK -> "pas de connexion réseau."
+            SpeechRecognizer.ERROR_AUDIO -> "problème avec le micro."
+            SpeechRecognizer.ERROR_SERVER -> "service de reconnaissance vocale indisponible."
+            SpeechRecognizer.ERROR_CLIENT -> "je relance l'écoute."
+            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "rien entendu, je réécoute."
+            SpeechRecognizer.ERROR_NO_MATCH -> "je n'ai pas compris, réessaie."
+            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "micro occupé, je relance."
+            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "permission micro refusée."
+            else -> "erreur inconnue."
+        }
+        return "Erreur STT: $code — $detail"
     }
 
     fun startListening() {
