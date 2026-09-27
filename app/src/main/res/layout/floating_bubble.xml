@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="64dp"
+    android:layout_height="64dp">
+
+    <ImageView
+        android:id="@+id/bubbleIcon"
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:padding="14dp"
+        android:background="@drawable/ic_launcher_background"
+        android:src="@drawable/ic_launcher_foreground"
+        android:contentDescription="Jarvis" />
+
+</FrameLayout>
