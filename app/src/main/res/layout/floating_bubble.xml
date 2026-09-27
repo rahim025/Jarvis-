@@ -9,4 +9,12 @@
         android:layout_height="84dp"
         android:contentDescription="Jarvis" />
 
+    <!-- Vue transparente au-dessus de la WebView : c'est elle qui capte le tap/glisser,
+         sinon la WebView absorbe le toucher et le clic/déplacement de la bulle ne marche pas. -->
+    <View
+        android:id="@+id/bubbleTouchCatcher"
+        android:layout_width="84dp"
+        android:layout_height="84dp"
+        android:background="@android:color/transparent" />
+
 </FrameLayout>
