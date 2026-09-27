@@ -63,11 +63,50 @@ class MainActivity : AppCompatActivity() {
                 enableBackgroundMode()
             }
         }
+
+        binding.enableHandCursorButton.setOnClickListener {
+            if (JarvisHandTrackingService.isRunning) {
+                stopService(Intent(this, JarvisHandTrackingService::class.java))
+                binding.statusText.text = "Curseur main désactivé."
+                updateHandCursorButtonLabel()
+            } else {
+                enableHandCursorMode()
+            }
+        }
     }
 
     override fun onResume() {
         super.onResume()
         updateBackgroundButtonLabel()
+        updateHandCursorButtonLabel()
+    }
+
+    private fun updateHandCursorButtonLabel() {
+        binding.enableHandCursorButton.text =
+            if (JarvisHandTrackingService.isRunning) "Désactiver le curseur main"
+            else "Activer le curseur main (caméra)"
+    }
+
+    /**
+     * Curseur main : suit la pointe de l'index via la caméra avant et affiche un point noir
+     * qui reproduit ses mouvements ; pincer pouce-index clique ou glisse à cet endroit.
+     * Nécessite la permission caméra + l'affichage par-dessus les autres apps.
+     */
+    private fun enableHandCursorMode() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED) {
+            binding.statusText.text = "Autorise l'accès à la caméra, puis retape sur le bouton."
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), 2)
+            return
+        }
+        if (!Settings.canDrawOverlays(this)) {
+            binding.statusText.text = "Autorise l'affichage par-dessus les autres apps, puis réessaie."
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            return
+        }
+        ContextCompat.startForegroundService(this, Intent(this, JarvisHandTrackingService::class.java))
+        binding.statusText.text = "Curseur main actif : pince pouce-index pour cliquer."
+        binding.enableHandCursorButton.text = "Désactiver le curseur main"
     }
 
     private fun updateBackgroundButtonLabel() {

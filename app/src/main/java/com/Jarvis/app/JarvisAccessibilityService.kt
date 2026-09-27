@@ -78,4 +78,18 @@ class JarvisAccessibilityService : AccessibilityService() {
             .build()
         dispatchGesture(gesture, null, null)
     }
+
+    /** Simule un glissement suivant une série de points (utilisé par le suivi de main par caméra). */
+    fun swipePath(points: List<android.graphics.PointF>, durationMs: Long) {
+        if (points.isEmpty()) return
+        val path = Path().apply {
+            moveTo(points.first().x, points.first().y)
+            for (p in points.drop(1)) lineTo(p.x, p.y)
+        }
+        val safeDuration = durationMs.coerceIn(50, 3000)
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, safeDuration))
+            .build()
+        dispatchGesture(gesture, null, null)
+    }
 }
