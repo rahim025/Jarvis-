@@ -11,6 +11,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
     <!-- Nécessaire pour que "ouvre WhatsApp" (ou n'importe quelle autre app) fonctionne :
          depuis Android 11, une app ne voit plus la liste complète des apps installées
          par défaut. Comme Jarvis n'est pas distribué sur le Play Store (sideload/APK
@@ -55,6 +58,13 @@
             android:name=".JarvisForegroundService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- Service en premier plan qui suit ta main via la caméra avant et affiche
+             un point noir qui reproduit tes mouvements de doigt à l'écran (pincement = clic/glisser). -->
+        <service
+            android:name=".JarvisHandTrackingService"
+            android:exported="false"
+            android:foregroundServiceType="camera" />
 
     </application>
 </manifest>
