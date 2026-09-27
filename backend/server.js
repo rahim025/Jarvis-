@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
+const { buildMemoryContext, saveTurn } = require('./jarvisMemory');
 
 const app = express();
 app.use(cors());
@@ -10,13 +11,17 @@ app.use(express.json({ limit: '10mb' })); // limit généreux pour les images en
 const PORT = process.env.PORT || 3000;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-// Optionnel : un secret partagé simple pour que seule ton app puisse appeler ce backend.
+
+// Optionnel : un secret partagé simple pour que seule ton app puisse appeler le backend.
 // Si APP_SHARED_SECRET n'est pas défini, la vérification est désactivée (pratique en dev).
 const APP_SHARED_SECRET = process.env.APP_SHARED_SECRET;
 
+// Utilisé si l'app envoie encore une requête sans userId (ancienne version, etc.).
+const DEFAULT_USER_ID = 'rahim';
+
 function checkSecret(req, res, next) {
   if (!APP_SHARED_SECRET) return next(); // pas configuré = pas de check
-  const header = req.header('x-app-secret');
+  const header = req.headers['x-app-secret'];
   if (header !== APP_SHARED_SECRET) {
     return res.status(401).json({ error: 'Non autorisé' });
   }
@@ -27,7 +32,7 @@ function checkSecret(req, res, next) {
 const tools = [
   tool('open_app', "Ouvre une application par son nom", { app_name: "nom de l'app, ex: WhatsApp" }),
   tool('send_sms', "Envoie un SMS à un contact", { contact: "nom ou numéro", message: "contenu du SMS" }),
-  tool('click_on_screen', "Clique sur un élément visible à l'écran par son texte/label", { label: "texte du bouton/élément à cliquer" }),
+  tool('click_on_screen', "Clique sur un élément visible à l'écran par son texte/label", { label: "texte du bouton/élément" }),
   tool('type_text', "Tape du texte dans le champ actuellement sélectionné", { text: "texte à taper" }),
   tool('go_home', "Retourne à l'écran d'accueil du téléphone", {}),
   tool('go_back', "Appuie sur le bouton retour", {}),
@@ -57,12 +62,19 @@ app.get('/', (req, res) => {
 });
 
 // L'app Android envoie le texte reconnu par la voix ici.
-// Ce endpoint parle à Groq et renvoie soit du texte, soit une action à exécuter.
+// Cet endpoint parle à Groq et renvoie soit du texte, soit une action à exécuter.
 app.post('/ask', checkSecret, async (req, res) => {
   const { text } = req.body;
+  const userId = req.body.userId || DEFAULT_USER_ID;
   if (!text) return res.status(400).json({ error: 'Le champ "text" est requis.' });
 
   try {
+    // Faits connus + souvenirs pertinents, à injecter dans le prompt système.
+    const memoryContext = await buildMemoryContext(userId, text).catch((err) => {
+      console.error('Mémoire indisponible:', err);
+      return ''; // ne bloque jamais la réponse si la mémoire échoue
+    });
+
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -78,7 +90,8 @@ app.post('/ask', checkSecret, async (req, res) => {
             content:
               "Tu es Jarvis, un assistant personnel sur Android. " +
               "Si la demande nécessite une action sur le téléphone, appelle l'outil correspondant. " +
-              "Sinon, réponds simplement en texte, en français, de façon concise.",
+              "Sinon, réponds simplement en texte, en français, de façon concise." +
+              (memoryContext ? `\n\n${memoryContext}` : ''),
           },
           { role: 'user', content: text },
         ],
@@ -96,10 +109,16 @@ app.post('/ask', checkSecret, async (req, res) => {
     const toolCall = message.tool_calls?.[0];
     if (toolCall) {
       const args = JSON.parse(toolCall.function.arguments);
+      // On garde une trace de l'action dans la mémoire (sans bloquer la réponse).
+      saveTurn(userId, 'user', text).catch(console.error);
+      saveTurn(userId, 'assistant', `[action] ${toolCall.function.name}`).catch(console.error);
       return res.json({ type: 'action', name: toolCall.function.name, args });
     }
 
-    return res.json({ type: 'speak', text: message.content || '...' });
+    const reply = message.content || '...';
+    saveTurn(userId, 'user', text).catch(console.error);
+    saveTurn(userId, 'assistant', reply).catch(console.error);
+    return res.json({ type: 'speak', text: reply });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erreur serveur', detail: err.message });
