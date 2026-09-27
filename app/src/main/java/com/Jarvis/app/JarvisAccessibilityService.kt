@@ -70,6 +70,37 @@ class JarvisAccessibilityService : AccessibilityService() {
     fun goHome() = performGlobalAction(GLOBAL_ACTION_HOME)
     fun goBack() = performGlobalAction(GLOBAL_ACTION_BACK)
 
+    /** "Sors de l'appli" : il n'existe pas de "fermer proprement telle appli" côté API
+     *  publique Android sans droits admin, donc on revient à l'écran d'accueil, ce qui
+     *  fait quitter l'appli au premier plan. */
+    fun closeCurrentApp() = performGlobalAction(GLOBAL_ACTION_HOME)
+
+    /** Simule un défilement au centre de l'écran dans une direction donnée
+     *  ("up", "down", "left", "right"), utilisable sur n'importe quelle appli. */
+    fun scroll(direction: String) {
+        val metrics = resources.displayMetrics
+        val w = metrics.widthPixels.toFloat()
+        val h = metrics.heightPixels.toFloat()
+        val cx = w / 2f
+        val cy = h / 2f
+        val path = Path()
+        when (direction) {
+            // "défiler en bas" (voir la suite du contenu) : le doigt glisse vers le haut.
+            "down" -> { path.moveTo(cx, h * 0.75f); path.lineTo(cx, h * 0.25f) }
+            // "défiler en haut" (remonter dans le contenu) : le doigt glisse vers le bas.
+            "up" -> { path.moveTo(cx, h * 0.25f); path.lineTo(cx, h * 0.75f) }
+            // "défiler à gauche" (voir le contenu de gauche) : le doigt glisse vers la droite.
+            "left" -> { path.moveTo(w * 0.25f, cy); path.lineTo(w * 0.85f, cy) }
+            // "défiler à droite" (voir le contenu de droite) : le doigt glisse vers la gauche.
+            "right" -> { path.moveTo(w * 0.85f, cy); path.lineTo(w * 0.25f, cy) }
+            else -> return
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 300))
+            .build()
+        dispatchGesture(gesture, null, null)
+    }
+
     /** Simule un tap à des coordonnées précises (utile si aucun label ne matche). */
     fun tapAt(x: Float, y: Float) {
         val path = Path().apply { moveTo(x, y) }

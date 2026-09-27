@@ -33,6 +33,15 @@ class JarvisForegroundService : Service() {
          *  SpeechRecognizer (celui de MainActivity) n'entre en conflit avec le micro. */
         var isRunning = false
             private set
+
+        /** Instance active, utilisée par IncomingCallReceiver pour déclencher le portier
+         *  vocal quand le téléphone sonne (rien à faire si le service n'est pas actif :
+         *  pas de moteur vocal disponible pour poser la question). */
+        private var instance: JarvisForegroundService? = null
+
+        fun onIncomingCall(callerNumber: String?) {
+            instance?.handleIncomingCall(callerNumber)
+        }
     }
 
     private lateinit var windowManager: WindowManager
@@ -50,6 +59,7 @@ class JarvisForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+        instance = this
         startForegroundWithNotification()
         setupVoice()
         setupBubble()
@@ -78,6 +88,72 @@ class JarvisForegroundService : Service() {
         if (::avatarWebView.isInitialized) {
             avatarWebView.evaluateJavascript("setJarvisState('$state')", null)
         }
+    }
+
+    /**
+     * Appel entrant : on ne décroche JAMAIS à l'aveugle. On demande d'abord à l'utilisateur
+     * s'il est disponible, via le même micro/TTS que la conversation habituelle (dérouté
+     * temporairement avec resultOverride/errorOverride pour ne pas perturber la conversation).
+     *  - "oui" -> on décroche et on te laisse la ligne.
+     *  - "non" / pas de réponse claire sous 8s -> on décroche puis on tente de dire à
+     *    l'appelant que tu n'es pas disponible (best-effort : Android ne garantit pas
+     *    qu'une appli tierce puisse injecter de l'audio dans un appel sur tous les téléphones).
+     */
+    private fun handleIncomingCall(callerNumber: String?) {
+        if (!::voiceManager.isInitialized) return
+        val callerLabel = resolveCallerLabel(callerNumber)
+        var resolved = false
+        val timeoutHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+        fun respond(answerText: String) {
+            if (resolved) return
+            resolved = true
+            voiceManager.resultOverride = null
+            voiceManager.errorOverride = null
+            val available = Regex("oui|dispo|ouais|vas-y|vas y", RegexOption.IGNORE_CASE)
+                .containsMatchIn(answerText)
+            val telecomManager = getSystemService(TELECOM_SERVICE) as? android.telecom.TelecomManager
+            if (available) {
+                telecomManager?.acceptRingingCall()
+                voiceManager.speak("D'accord, je te passe l'appel.")
+            } else {
+                telecomManager?.acceptRingingCall()
+                IncomingCallCallerNotifier.speakToCaller(
+                    this,
+                    "Le créateur de Jarvis n'est pas disponible pour le moment. Merci de rappeler plus tard."
+                )
+            }
+        }
+
+        voiceManager.resultOverride = { text -> respond(text) }
+        voiceManager.errorOverride = { respond("") } // pas compris = traité comme "pas disponible", par sécurité
+        voiceManager.speak("$callerLabel t'appelle. Tu es disponible ?")
+        voiceManager.onSpeakDone = {
+            voiceManager.startListening()
+            timeoutHandler.postDelayed({ respond("") }, 8000)
+        }
+    }
+
+    /** Cherche un nom de contact pour le numéro entrant ; à défaut, renvoie le numéro
+     *  brut, ou "Quelqu'un" si même le numéro est masqué/inconnu. */
+    private fun resolveCallerLabel(number: String?): String {
+        if (number.isNullOrBlank()) return "Quelqu'un"
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.READ_CONTACTS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return number
+
+        val uri = android.provider.ContactsContract.PhoneLookup.CONTENT_FILTER_URI
+            .buildUpon().appendPath(number).build()
+        contentResolver.query(
+            uri, arrayOf(android.provider.ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val idx = cursor.getColumnIndex(android.provider.ContactsContract.PhoneLookup.DISPLAY_NAME)
+                if (idx >= 0) return cursor.getString(idx) ?: number
+            }
+        }
+        return number
     }
 
     private fun setupBubble() {
@@ -196,6 +272,7 @@ class JarvisForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
+        instance = null
         conversation.stop()
         voiceManager.destroy()
         if (::bubbleView.isInitialized) {
