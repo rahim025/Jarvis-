@@ -15,6 +15,7 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.webkit.WebView
 import androidx.core.app.NotificationCompat
 import com.jarvis.app.ai.JarvisConversationController
 import com.jarvis.app.voice.VoiceManager
@@ -36,6 +37,7 @@ class JarvisForegroundService : Service() {
 
     private lateinit var windowManager: WindowManager
     private lateinit var bubbleView: View
+    private lateinit var avatarWebView: WebView
     private lateinit var voiceManager: VoiceManager
     private lateinit var conversation: JarvisConversationController
 
@@ -66,13 +68,26 @@ class JarvisForegroundService : Service() {
         conversation = JarvisConversationController(
             context = this,
             voiceManager = voiceManager,
-            onStatus = { updateNotification(it) }
+            onStatus = { updateNotification(it) },
+            onAvatarState = { state -> setAvatarState(state) }
         )
+    }
+
+    /** Reflète l'état de la conversation sur l'avatar HUD affiché dans la bulle. */
+    private fun setAvatarState(state: String) {
+        if (::avatarWebView.isInitialized) {
+            avatarWebView.evaluateJavascript("setJarvisState('$state')", null)
+        }
     }
 
     private fun setupBubble() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         bubbleView = LayoutInflater.from(this).inflate(R.layout.floating_bubble, null)
+
+        avatarWebView = bubbleView.findViewById(R.id.bubbleAvatar)
+        avatarWebView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        avatarWebView.settings.javaScriptEnabled = true
+        avatarWebView.loadUrl("file:///android_asset/jarvis_avatar.html")
 
         val overlayType =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)

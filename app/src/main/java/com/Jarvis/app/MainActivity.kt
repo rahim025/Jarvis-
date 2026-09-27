@@ -25,6 +25,9 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        binding.jarvisAvatar.settings.javaScriptEnabled = true
+        binding.jarvisAvatar.loadUrl("file:///android_asset/jarvis_avatar.html")
+
         requestMicPermissionIfNeeded()
 
         voiceManager = VoiceManager(
@@ -36,10 +39,13 @@ class MainActivity : AppCompatActivity() {
         conversation = JarvisConversationController(
             context = this,
             voiceManager = voiceManager,
-            onStatus = { status -> binding.statusText.text = status }
+            onStatus = { status -> binding.statusText.text = status },
+            onAvatarState = { state ->
+                binding.jarvisAvatar.evaluateJavascript("setJarvisState('$state')", null)
+            }
         )
 
-        binding.micButton.setOnClickListener {
+        binding.jarvisAvatar.setOnClickListener {
             if (JarvisForegroundService.isRunning) {
                 binding.statusText.text =
                     "Jarvis est déjà actif en arrière-plan (bulle). Utilise-la, ou désactive " +
