@@ -143,6 +143,11 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
             return
         }
+        // On coupe d'abord la conversation locale : sinon son SpeechRecognizer reste actif
+        // en même temps que celui du service (bulle), et les deux se disputent le micro.
+        if (::conversation.isInitialized) {
+            conversation.stop()
+        }
         val serviceIntent = Intent(this, JarvisForegroundService::class.java)
         ContextCompat.startForegroundService(this, serviceIntent)
         binding.statusText.text = "Jarvis tourne en arrière-plan (bulle flottante active)."
