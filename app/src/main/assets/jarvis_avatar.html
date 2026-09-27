@@ -1,1 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  :root{
+    --cyan:#4fd6ff;
+    --cyan-dim:#1a5a75;
+    --glow:#7fe9ff;
+  }
+  html,body{
+    margin:0; padding:0;
+    width:100%; height:100%;
+    background:transparent;
+    overflow:hidden;
+  }
+  .stage{ position:relative; width:100%; height:100%; }
+  svg{ width:100%; height:100%; overflow:visible; }
 
+  .ring{ fill:none; stroke:var(--cyan); filter:drop-shadow(0 0 3px var(--glow)); }
+  .ring-dim{ fill:none; stroke:var(--cyan-dim); }
+
+  .spin-slow{ transform-origin:250px 250px; animation:spin 18s linear infinite; }
+  .spin-slow-rev{ transform-origin:250px 250px; animation:spin-rev 24s linear infinite; }
+  .spin-med{ transform-origin:250px 250px; animation:spin 10s linear infinite; }
+  .spin-fast-rev{ transform-origin:250px 250px; animation:spin-rev 6s linear infinite; }
+  @keyframes spin{ from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
+  @keyframes spin-rev{ from{transform:rotate(360deg);} to{transform:rotate(0deg);} }
+
+  .core{
+    fill:none; stroke:var(--cyan);
+    filter:drop-shadow(0 0 6px var(--glow));
+    animation:pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse{
+    0%,100%{ stroke-width:3; opacity:0.9; }
+    50%{ stroke-width:5; opacity:1; }
+  }
+
+  /* --- états pilotés depuis Kotlin via setJarvisState() --- */
+  body[data-state="idle"] .spin-slow{ animation-duration:18s; }
+  body[data-state="idle"] .spin-fast-rev{ animation-duration:6s; }
+  body[data-state="idle"] .core{ animation-duration:1.6s; }
+
+  body[data-state="listening"] .spin-slow{ animation-duration:9s; }
+  body[data-state="listening"] .spin-slow-rev{ animation-duration:12s; }
+  body[data-state="listening"] .ring{ filter:drop-shadow(0 0 5px var(--glow)); }
+
+  body[data-state="speaking"] .spin-fast-rev{ animation-duration:2.4s; }
+  body[data-state="speaking"] .core{ animation-duration:0.5s; }
+
+  body[data-state="executing"]{ --cyan:#ffb23f; --glow:#ffd27f; --cyan-dim:#7a5622; }
+  body[data-state="executing"] .spin-slow,
+  body[data-state="executing"] .spin-med,
+  body[data-state="executing"] .spin-fast-rev,
+  body[data-state="executing"] .spin-slow-rev{ animation-duration:1.4s; }
+</style>
+</head>
+<body data-state="idle">
+<div class="stage">
+  <svg viewBox="0 0 500 500">
+    <circle class="ring-dim" cx="250" cy="250" r="238" stroke-width="1"/>
+    <g class="spin-slow">
+      <circle class="ring" cx="250" cy="250" r="222" stroke-width="2" stroke-dasharray="2 6"/>
+      <circle class="ring" cx="250" cy="250" r="222" stroke-width="6" stroke-dasharray="40 210" stroke-linecap="round"/>
+    </g>
+    <g class="spin-slow-rev">
+      <circle class="ring" cx="250" cy="250" r="196" stroke-width="1.5" stroke-dasharray="1 5"/>
+    </g>
+    <g class="spin-med" id="tickRing"></g>
+    <g class="spin-fast-rev">
+      <circle class="ring" cx="250" cy="250" r="150" stroke-width="4" stroke-dasharray="18 8 4 8 30 150" stroke-linecap="round"/>
+    </g>
+    <g class="spin-slow" id="innerTickRing"></g>
+    <circle class="core" cx="250" cy="250" r="108"/>
+    <circle class="ring" cx="250" cy="250" r="118" stroke-width="1" opacity="0.6"/>
+  </svg>
+</div>
+
+<script>
+function buildTicks(id, radius, count, len, width){
+  const g = document.getElementById(id);
+  const cx = 250, cy = 250;
+  for(let i=0;i<count;i++){
+    const angle = (i / count) * 2 * Math.PI;
+    const x1 = cx + radius * Math.cos(angle);
+    const y1 = cy + radius * Math.sin(angle);
+    const x2 = cx + (radius - len) * Math.cos(angle);
+    const y2 = cy + (radius - len) * Math.sin(angle);
+    const line = document.createElementNS("http://www.w3.org/2000/svg","line");
+    line.setAttribute("x1", x1); line.setAttribute("y1", y1);
+    line.setAttribute("x2", x2); line.setAttribute("y2", y2);
+    line.setAttribute("stroke", "#4fd6ff");
+    line.setAttribute("stroke-width", width);
+    line.setAttribute("opacity", 0.4 + Math.random()*0.6);
+    g.appendChild(line);
+  }
+}
+buildTicks("tickRing", 180, 60, 8, 1.5);
+buildTicks("innerTickRing", 132, 40, 6, 1.5);
+
+// Appelé depuis Kotlin : webView.evaluateJavascript("setJarvisState('speaking')", null)
+function setJarvisState(state){
+  document.body.setAttribute("data-state", state);
+}
+window.setJarvisState = setJarvisState;
+</script>
+</body>
+</html>
