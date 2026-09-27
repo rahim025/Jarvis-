@@ -81,6 +81,19 @@ class MainActivity : AppCompatActivity() {
         updateHandCursorButtonLabel()
     }
 
+    override fun onPause() {
+        super.onPause()
+        // Si l'app passe en arrière-plan sans que le mode bulle soit actif, on coupe la
+        // conversation ici : sinon le SpeechRecognizer lié à cette Activity se met à échouer
+        // en boucle (Erreur STT: 5) et l'app semble figée au retour.
+        if (!JarvisForegroundService.isRunning && ::conversation.isInitialized && conversation.conversationActive) {
+            conversation.stop()
+            binding.statusText.text =
+                "Écoute mise en pause (appli en arrière-plan). Retape sur le micro, " +
+                "ou active « Jarvis en arrière-plan » pour continuer sans interruption."
+        }
+    }
+
     private fun updateHandCursorButtonLabel() {
         binding.enableHandCursorButton.text =
             if (JarvisHandTrackingService.isRunning) "Désactiver le curseur main"
