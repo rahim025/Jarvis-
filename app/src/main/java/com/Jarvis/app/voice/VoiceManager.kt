@@ -30,6 +30,12 @@ class VoiceManager(
     /** Appelé (sur le thread principal) juste après que Jarvis ait fini de parler. */
     var onSpeakDone: (() -> Unit)? = null
 
+    /** Déroute temporairement un résultat/erreur ailleurs que vers les callbacks fixes du
+     *  constructeur — utilisé par le portier d'appel entrant pour poser une question
+     *  ponctuelle ("tu es disponible ?") sans toucher au câblage normal de la conversation. */
+    var resultOverride: ((String) -> Unit)? = null
+    var errorOverride: ((String) -> Unit)? = null
+
     init {
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
@@ -63,7 +69,7 @@ class VoiceManager(
                 val text = results
                     ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     ?.firstOrNull()
-                if (text != null) onResult(text) else onError("Rien compris")
+                if (text != null) (resultOverride ?: onResult)(text) else (errorOverride ?: onError)("Rien compris")
             }
 
             override fun onError(error: Int) {
@@ -75,7 +81,7 @@ class VoiceManager(
                 ) {
                     mainHandler.post { recreateRecognizer() }
                 }
-                onError(sttErrorMessage(error))
+                (errorOverride ?: onError)(sttErrorMessage(error))
             }
 
             // Callbacks non utilisés mais requis par l'interface
