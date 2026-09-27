@@ -32,10 +32,16 @@ function checkSecret(req, res, next) {
 const tools = [
   tool('open_app', "Ouvre une application par son nom", { app_name: "nom de l'app, ex: WhatsApp" }),
   tool('send_sms', "Envoie un SMS à un contact", { contact: "nom ou numéro", message: "contenu du SMS" }),
+  tool('call_contact', "Appelle un contact par son nom ou son numéro", { contact: "nom ou numéro" }),
   tool('click_on_screen', "Clique sur un élément visible à l'écran par son texte/label", { label: "texte du bouton/élément" }),
   tool('type_text', "Tape du texte dans le champ actuellement sélectionné", { text: "texte à taper" }),
   tool('go_home', "Retourne à l'écran d'accueil du téléphone", {}),
   tool('go_back', "Appuie sur le bouton retour", {}),
+  tool('close_app', "Ferme/quitte l'application actuellement ouverte au premier plan", {}),
+  tool('scroll_up', "Fait défiler l'écran vers le haut (remonter dans le contenu)", {}),
+  tool('scroll_down', "Fait défiler l'écran vers le bas (voir la suite du contenu)", {}),
+  tool('scroll_left', "Fait défiler l'écran vers la gauche", {}),
+  tool('scroll_right', "Fait défiler l'écran vers la droite", {}),
 ];
 
 function tool(name, description, params) {
