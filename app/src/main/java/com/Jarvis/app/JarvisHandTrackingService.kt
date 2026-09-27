@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
@@ -12,6 +13,7 @@ import android.graphics.PixelFormat
 import android.graphics.PointF
 import android.os.Build
 import android.os.Handler
+import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
 import android.util.DisplayMetrics
@@ -23,7 +25,9 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.NotificationCompat
-import androidx.lifecycle.LifecycleService
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
@@ -43,8 +47,16 @@ import kotlin.math.sqrt
  * NOTE : nécessite le fichier de modèle "hand_landmarker.task" dans app/src/main/assets/
  * (voir instructions fournies séparément — c'est un fichier binaire que je ne peux pas
  * générer moi-même).
+ *
+ * Implémente LifecycleOwner "à la main" (via LifecycleRegistry) au lieu de dépendre
+ * d'androidx.lifecycle:lifecycle-service, pour éviter tout souci de résolution de
+ * dépendance — CameraX a seulement besoin d'un LifecycleOwner pour s'attacher.
  */
-class JarvisHandTrackingService : LifecycleService() {
+class JarvisHandTrackingService : Service(), LifecycleOwner {
+
+    private val lifecycleRegistry = LifecycleRegistry(this)
+    override val lifecycle: Lifecycle
+        get() = lifecycleRegistry
 
     companion object {
         var isRunning = false
@@ -72,6 +84,7 @@ class JarvisHandTrackingService : LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED
         isRunning = true
         cameraExecutor = Executors.newSingleThreadExecutor()
         readScreenSize()
@@ -79,12 +92,14 @@ class JarvisHandTrackingService : LifecycleService() {
         setupDot()
         setupHandLandmarker()
         startCamera()
+        lifecycleRegistry.currentState = Lifecycle.State.STARTED
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        super.onStartCommand(intent, flags, startId)
         return START_STICKY
     }
+
+    override fun onBind(intent: Intent?): IBinder? = null
 
     private fun readScreenSize() {
         val metrics = DisplayMetrics()
@@ -282,6 +297,7 @@ class JarvisHandTrackingService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
         super.onDestroy()
         isRunning = false
         cameraExecutor.shutdown()
