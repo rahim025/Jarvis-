@@ -48,8 +48,8 @@ object BackendClient {
     }
 
     /** Envoie le texte reconnu par la voix au backend, qui interroge Groq et décide d'une action. */
-    fun decideAction(userText: String): JarvisAction {
-        val body = JSONObject().put("text", userText)
+    fun decideAction(userText: String, userId: String): JarvisAction {
+        val body = JSONObject().put("text", userText).put("userId", userId)
         val request = requestBuilder("$BASE_URL/ask")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
