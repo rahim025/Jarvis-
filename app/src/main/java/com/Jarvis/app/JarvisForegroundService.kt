@@ -89,6 +89,8 @@ class JarvisForegroundService : Service() {
         avatarWebView.settings.javaScriptEnabled = true
         avatarWebView.loadUrl("file:///android_asset/jarvis_avatar.html")
 
+        val touchCatcher = bubbleView.findViewById<View>(R.id.bubbleTouchCatcher)
+
         val overlayType =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -108,7 +110,9 @@ class JarvisForegroundService : Service() {
         }
 
         // Glisser la bulle pour la déplacer ; un simple tap (sans déplacement) parle à Jarvis.
-        bubbleView.setOnTouchListener { _, event ->
+        // Écouté sur touchCatcher (au-dessus de la WebView) : sinon la WebView absorbe le
+        // toucher et ni le tap ni le glissé ne remontent jusqu'ici.
+        touchCatcher.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     initialX = params.x

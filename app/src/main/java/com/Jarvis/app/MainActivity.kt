@@ -25,6 +25,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        binding.jarvisAvatar.setBackgroundColor(android.graphics.Color.TRANSPARENT)
         binding.jarvisAvatar.settings.javaScriptEnabled = true
         binding.jarvisAvatar.loadUrl("file:///android_asset/jarvis_avatar.html")
 
