@@ -175,10 +175,10 @@ async function getWeather(city) {
   }
 }
 
-async function webSearch(query) {
-  if (!GEMINI_API_KEY) return "La recherche web n'est pas configurée (clé Gemini manquante).";
+async function webSearch(query, geminiKey = GEMINI_API_KEY) {
+  if (!geminiKey) return "La recherche web n'est pas configurée (clé Gemini manquante : menu ⚙ > Clés API).";
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -222,9 +222,9 @@ async function tiktokFollowers() {
   }
 }
 
-async function runServerTool(name, args) {
+async function runServerTool(name, args, geminiKey) {
   if (name === 'get_weather') return getWeather(args.city);
-  if (name === 'web_search') return webSearch(args.query);
+  if (name === 'web_search') return webSearch(args.query, geminiKey);
   if (name === 'tiktok_followers') return tiktokFollowers();
   return 'Outil inconnu.';
 }
@@ -287,17 +287,59 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', service: 'jarvis-backend' });
 });
 
-async function callGroq(messages) {
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+// ── Fournisseur LLM : celui envoyé par l'app (menu ⚙ > Clés API), sinon les variables Render ──
+
+const DEFAULT_LLM_BASE_URL = 'https://api.groq.com/openai/v1';
+
+function isSafeBaseUrl(raw) {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:') return false;
+    const h = url.hostname.toLowerCase();
+    if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal')) return false;
+    if (h.startsWith('[')) return false; // adresses IPv6 littérales
+    if (/^(0\.|10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h)) return false;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function resolveLLM(body) {
+  const o = body && typeof body.llm === 'object' && body.llm ? body.llm : {};
+  const str = (v) => (typeof v === 'string' ? v.trim() : '');
+  const apiKey = str(o.apiKey) || GROQ_API_KEY;
+  const model = str(o.model) || GROQ_MODEL;
+  const baseUrl = (str(o.baseUrl) || DEFAULT_LLM_BASE_URL).replace(/\/+$/, '');
+  if (!isSafeBaseUrl(baseUrl)) {
+    const err = new Error("URL du fournisseur refusée (https obligatoire, pas d'adresse locale).");
+    err.userMessage = err.message;
+    throw err;
+  }
+  return { apiKey, model, baseUrl };
+}
+
+function geminiKeyFrom(body) {
+  const k = body && typeof body.geminiKey === 'string' ? body.geminiKey.trim() : '';
+  return k || GEMINI_API_KEY;
+}
+
+async function callLLM(messages, llm) {
+  const response = await fetch(`${llm.baseUrl}/chat/completions`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: GROQ_MODEL, tools: TOOLS, messages }),
+    headers: { Authorization: `Bearer ${llm.apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: llm.model, tools: TOOLS, messages }),
   });
-  const data = await response.json();
+  const text = await response.text();
+  let data;
+  try { data = JSON.parse(text); } catch (e) { data = { error: { message: text.slice(0, 200) } }; }
   const message = data.choices?.[0]?.message;
   if (!message) {
-    const err = new Error('Réponse Groq invalide');
-    err.raw = data;
+    // On remonte le VRAI message du fournisseur (clé invalide, modèle arrêté, quota…) au lieu d'un "invalide" muet.
+    const detail = data.error?.message || `réponse vide (HTTP ${response.status})`;
+    console.error('LLM', llm.baseUrl, llm.model, response.status, detail);
+    const err = new Error(detail);
+    err.userMessage = `Fournisseur IA (${response.status}) : ${detail}`;
     throw err;
   }
   return message;
@@ -308,7 +350,16 @@ app.post('/ask', checkSecret, async (req, res) => {
   const { text } = req.body;
   const userId = req.body.userId || DEFAULT_USER_ID;
   if (!text) return res.status(400).json({ error: 'Le champ "text" est requis.' });
-  if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY manquante sur le serveur.' });
+  let llm;
+  try {
+    llm = resolveLLM(req.body);
+  } catch (e) {
+    return res.status(400).json({ error: e.userMessage || e.message });
+  }
+  if (!llm.apiKey) {
+    return res.status(400).json({ error: "Aucune clé API : ajoute-la dans l'app (menu ⚙ > Clés API & fournisseurs)." });
+  }
+  const geminiKey = geminiKeyFrom(req.body);
 
   const facts = req.body.facts && typeof req.body.facts === 'object' ? req.body.facts : {};
   const recent = Array.isArray(req.body.recent) ? req.body.recent : [];
@@ -332,7 +383,7 @@ app.post('/ask', checkSecret, async (req, res) => {
 
     let finalText = '';
     for (let round = 0; round < 4; round++) {
-      const message = await callGroq(messages);
+      const message = await callLLM(messages, llm);
       const calls = message.tool_calls || [];
 
       if (calls.length === 0) {
@@ -364,7 +415,7 @@ app.post('/ask', checkSecret, async (req, res) => {
       for (const c of serverCalls) {
         let args = {};
         try { args = JSON.parse(c.function.arguments || '{}'); } catch (e) { /* args vides */ }
-        const result = await runServerTool(c.function.name, args);
+        const result = await runServerTool(c.function.name, args, geminiKey);
         messages.push({ role: 'tool', tool_call_id: c.id, content: String(result) });
       }
     }
@@ -377,7 +428,7 @@ app.post('/ask', checkSecret, async (req, res) => {
     return res.json({ type: 'speak', text: finalText });
   } catch (err) {
     console.error(err);
-    if (err.raw) return res.status(502).json({ error: 'Réponse Groq invalide', raw: err.raw });
+    if (err.userMessage) return res.status(502).json({ error: err.userMessage });
     res.status(500).json({ error: 'Erreur serveur', detail: err.message });
   }
 });
@@ -388,10 +439,11 @@ app.post('/vision', checkSecret, async (req, res) => {
   if (!prompt || !imageBase64) {
     return res.status(400).json({ error: 'Les champs "prompt" et "imageBase64" sont requis.' });
   }
-  if (!GEMINI_API_KEY) return res.status(500).json({ error: 'GEMINI_API_KEY manquante sur le serveur.' });
+  const geminiKey = geminiKeyFrom(req.body);
+  if (!geminiKey) return res.status(400).json({ error: "Clé Gemini manquante : menu ⚙ > Clés API & fournisseurs." });
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
