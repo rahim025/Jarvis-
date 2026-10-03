@@ -1,48 +1,35 @@
-# Jarvis — assistant vocal Android
+# Jarvis — assistant vocal Android (orbe + mémoire d'éléphant)
 
-Squelette de projet : commande vocale → Groq (décide une action via function calling) →
-exécution réelle (Intent ou AccessibilityService) → réponse vocale (TTS).
+Commande vocale → cerveau (Groq, via ton backend Render) → action réelle sur le téléphone → réponse vocale.
+L'interface reprend l'**orbe 3D** et le style de la version Windows/mobile.
 
-## Setup
+## Installer l'APK (GitHub Actions)
 
-1. Ouvrir le dossier `JarvisAndroid` dans Android Studio (Open an existing project).
-2. Copier `local.properties.example` en `local.properties` à la racine, et remplir :
-   - `sdk.dir` : chemin vers ton SDK Android (Android Studio le remplit souvent seul)
-   - `GROQ_API_KEY` : ta clé sur https://console.groq.com
-   - `GEMINI_API_KEY` : ta clé sur https://aistudio.google.com/apikey
-3. Sync Gradle, puis Run sur un appareil ou émulateur (minSdk 26 = Android 8+).
-4. Au premier lancement :
-   - Autoriser le micro
-   - Appuyer sur "Activer le contrôle d'écran" → dans les paramètres Android, activer
-     le service Jarvis sous Accessibilité (Android bloque cette permission par défaut,
-     c'est normal — c'est ce qui permet le contrôle avancé).
+1. Pousse ce dossier sur la branche `main` de ton dépôt GitHub.
+2. Settings → Secrets and variables → Actions : ajoute `BACKEND_URL` et `APP_SHARED_SECRET`.
+3. Onglet Actions → *Build APK* → télécharge l'artefact `jarvis-debug-apk`, installe `app-debug.apk`.
+   (le workflow télécharge tout seul `three.min.js` pour l'orbe et le modèle de suivi de la main)
+4. Au premier lancement : autoriser micro/contacts/téléphone, puis menu ⚙ → « Activer le contrôle d'écran ».
 
-## Comment ça marche
+## Backend (Render)
 
-- `MainActivity` : bouton micro → `VoiceManager` (STT natif Android) → texte
-- `GroqClient` : envoie le texte à Groq avec une liste d'outils ("function calling").
-  Groq répond soit du texte, soit "appelle cette fonction avec ces arguments".
-- `CommandExecutor` : transforme la décision de Groq en action réelle
-  (ouvrir une app, cliquer sur l'écran via `JarvisAccessibilityService`, etc.)
-- `JarvisAccessibilityService` : lit l'arbre de l'écran et peut cliquer/taper dessus.
-- `GeminiClient` : pas encore branché à l'orchestrateur — prévu pour les tâches
-  multimodales (ex: "regarde ce qui est affiché et dis-moi ce que c'est"),
-  en lui envoyant une capture d'écran en base64.
+Dossier `backend/`. Variables d'environnement : `GROQ_API_KEY`, `GEMINI_API_KEY`, `APP_SHARED_SECRET`,
+et en option `CREATOR_NAME`, `DEFAULT_CITY` (météo), `TIKTOK_USERNAME`. **Redéploie le backend** : l'app a besoin de la nouvelle version.
 
-## Prochaines étapes possibles
+## Mémoire d'éléphant
 
-- Ajouter un wake word ("Hey Jarvis") avec Porcupine (Picovoice) pour ne plus avoir
-  à appuyer sur le bouton.
-- Brancher Gemini pour analyser les captures d'écran (contexte visuel plus riche
-  que juste l'arbre d'accessibilité).
-- Ajouter un historique de conversation (actuellement chaque commande est traitée
-  seule, sans mémoire du tour précédent).
-- Remplacer l'`ACTION_SENDTO` des SMS par `SmsManager.sendTextMessage` pour un
-  envoi silencieux, une fois testé et validé.
-- Envelopper le contrôle d'écran (clic/frappe) dans un service en foreground
-  pour que ça marche même app fermée.
+- Sur le téléphone (SQLite, aucune limite pratique) : **faits** (« retiens que… ») + **journal de tous les échanges**.
+- À chaque question, Jarvis reçoit : tes faits, les 20 derniers échanges, et les vieux échanges qui parlent du même sujet.
+- Dis : « Jarvis, retiens que mon plat préféré est… », « oublie… », « qu'est-ce que tu sais sur moi ? ».
+- Menu ⚙ → « Ce que Jarvis sait de moi » / « Effacer toute la mémoire ». Sauvegarde automatique Android (allowBackup).
+
+## Fonctions
+
+Ouvrir/fermer une app, cliquer, taper, défiler, SMS, **appels** (contact, numéro dicté, surnom, WhatsApp voix/vidéo, rappeler le dernier numéro, raccrocher, haut-parleur), filtre d'appels entrants, curseur main (caméra), bulle flottante, et :
+météo, recherche web (actus, sport, prix), abonnés TikTok, volume, musique (Spotify/YouTube) et contrôle média, lampe torche,
+luminosité, alarmes, minuteurs, ouvrir un site, navigation GPS, état du téléphone (batterie/RAM/stockage),
+**vision d'écran** (« qu'est-ce que je regarde ? », Android 11+, via Gemini), plusieurs commandes dans la même phrase.
 
 ## Sécurité
 
-`local.properties` est dans `.gitignore` — ne commit jamais ce fichier ni tes clés
-en dur dans le code.
+`local.properties` et `backend/.env` sont dans `.gitignore` — ne les publie jamais.
