@@ -156,6 +156,11 @@ class VoiceManager(
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis_reply")
     }
 
+    /** Coupe la voix de Jarvis immédiatement (bouton STOP). */
+    fun stopSpeaking() {
+        runCatching { tts?.stop() }
+    }
+
     fun destroy() {
         isDestroyed = true
         runCatching { speechRecognizer.destroy() }
