@@ -47,7 +47,7 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Capture l'écran (Android 11+) et renvoie la photo en JPEG base64, réduite à ~1024 px
+     * Capture l'écran (Android 11+) et renvoie la photo en JPEG base64, réduite à ~1280 px
      * de large pour rester légère. À appeler depuis un thread d'arrière-plan (bloque ~1 s).
      * Sert à la vision : « Jarvis, qu'est-ce que je regarde ? » (analysée par Gemini).
      */
@@ -65,12 +65,12 @@ class JarvisAccessibilityService : AccessibilityService() {
                         val soft = hw?.copy(Bitmap.Config.ARGB_8888, false)
                         screenshot.hardwareBuffer.close()
                         if (soft != null) {
-                            val ratio = 1024f / soft.width.toFloat()
+                            val ratio = 1280f / soft.width.toFloat()
                             val scaled = if (ratio < 1f)
-                                Bitmap.createScaledBitmap(soft, 1024, (soft.height * ratio).toInt(), true)
+                                Bitmap.createScaledBitmap(soft, 1280, (soft.height * ratio).toInt(), true)
                             else soft
                             val out = ByteArrayOutputStream()
-                            scaled.compress(Bitmap.CompressFormat.JPEG, 70, out)
+                            scaled.compress(Bitmap.CompressFormat.JPEG, 80, out)
                             result = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
                         }
                     } catch (e: Exception) {
@@ -87,6 +87,36 @@ class JarvisAccessibilityService : AccessibilityService() {
         )
         latch.await(6, TimeUnit.SECONDS)
         return result
+    }
+
+    /**
+     * Lit le texte exact affiché à l'écran (titres, messages, boutons, champs) via l'arbre
+     * d'accessibilité. Envoyé avec la capture à l'IA pour qu'elle « voie » l'écran comme toi :
+     * l'image donne l'apparence, ce texte donne les mots exacts.
+     */
+    fun readScreenText(maxChars: Int = 3000): String {
+        val root = rootInActiveWindow ?: return ""
+        val sb = StringBuilder()
+        fun walk(n: AccessibilityNodeInfo) {
+            if (sb.length >= maxChars || !n.isVisibleToUser) return
+            val t = n.text?.toString()?.trim().orEmpty()
+            val d = n.contentDescription?.toString()?.trim().orEmpty()
+            val label = if (t.isNotEmpty()) t else d
+            if (label.isNotEmpty()) {
+                val kind = when {
+                    n.isEditable -> "[champ] "
+                    n.isClickable -> "[bouton] "
+                    else -> ""
+                }
+                sb.append(kind).append(label.take(150)).append('\n')
+            }
+            for (i in 0 until n.childCount) {
+                val c = n.getChild(i) ?: continue
+                walk(c)
+            }
+        }
+        walk(root)
+        return sb.toString().take(maxChars)
     }
 
     /** Cherche un élément visible à l'écran dont le texte contient [label] et clique dessus. */

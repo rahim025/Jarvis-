@@ -10,8 +10,10 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.jarvis.app.ai.ApiKeyStore
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
@@ -85,14 +87,12 @@ object ApiKeysDialog {
         box.addView(keyInput)
 
         val modelInput = EditText(activity).apply {
-            hint = provider?.defaultModel?.ifBlank { "nom du modèle" } ?: ""
+            hint = provider?.defaultModel?.ifBlank { "nom du modèle" } ?: ApiKeyStore.DEFAULT_GEMINI_MODEL
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             setText(ApiKeyStore.getModel(activity, id))
         }
-        if (!isGemini) {
-            box.addView(label("Modèle"))
-            box.addView(modelInput)
-        }
+        box.addView(label(if (isGemini) "Modèle de vision / recherche web" else "Modèle"))
+        box.addView(modelInput)
 
         val useCheck = CheckBox(activity).apply {
             text = "Utiliser comme cerveau de Jarvis"
@@ -120,7 +120,8 @@ object ApiKeysDialog {
             else ApiKeyStore.getBaseUrl(activity, id)
             result.text = "Test en cours…"
             Thread {
-                val msg = runCatching { testKey(id, base, key) }.getOrElse { "Échec réseau : ${it.message}" }
+                val model = modelInput.text.toString().trim()
+                val msg = runCatching { testKey(id, base, key, model) }.getOrElse { "Échec réseau : ${it.message}" }
                 activity.runOnUiThread { result.text = msg }
             }.start()
         }
@@ -131,8 +132,8 @@ object ApiKeysDialog {
             .setPositiveButton("Enregistrer") { _, _ ->
                 val typed = ApiKeyStore.cleanKey(keyInput.text.toString())
                 if (typed.isNotBlank()) ApiKeyStore.setKey(activity, id, typed)
+                ApiKeyStore.setModel(activity, id, modelInput.text.toString())
                 if (!isGemini) {
-                    ApiKeyStore.setModel(activity, id, modelInput.text.toString())
                     if (isCustom) ApiKeyStore.setCustomBaseUrl(activity, urlInput.text.toString())
                     if (useCheck.isChecked && ApiKeyStore.hasKey(activity, id)) ApiKeyStore.setActive(activity, id)
                 }
@@ -146,8 +147,8 @@ object ApiKeysDialog {
             .show()
     }
 
-    /** Appelle la liste des modèles du fournisseur : 200 = clé valide. */
-    private fun testKey(id: String, baseUrl: String, key: String): String {
+    /** Fait un tout petit appel réel au fournisseur : 200 = clé et modèle valides. */
+    private fun testKey(id: String, baseUrl: String, key: String, model: String): String {
         val request = if (id == ApiKeyStore.GEMINI_ID) {
             Request.Builder()
                 .url("https://generativelanguage.googleapis.com/v1beta/models")
@@ -155,17 +156,32 @@ object ApiKeysDialog {
                 .build()
         } else {
             if (!baseUrl.startsWith("https://")) return "URL invalide (https obligatoire)."
+            if (model.isBlank()) return "Indique le nom du modèle avant de tester."
+            val json = org.json.JSONObject()
+                .put("model", model)
+                .put("max_completion_tokens", 8)
+                .put(
+                    "messages",
+                    org.json.JSONArray().put(
+                        org.json.JSONObject().put("role", "user").put("content", "ping")
+                    )
+                )
             Request.Builder()
-                .url("$baseUrl/models")
+                .url("$baseUrl/chat/completions")
                 .addHeader("Authorization", "Bearer $key")
+                .post(json.toString().toRequestBody("application/json".toMediaType()))
                 .build()
         }
         http.newCall(request).execute().use { r ->
+            val detail = runCatching {
+                org.json.JSONObject(r.body?.string() ?: "").optJSONObject("error")?.optString("message")
+            }.getOrNull().orEmpty().take(160)
             return when {
-                r.isSuccessful -> "✓ Clé valide."
-                r.code == 401 || r.code == 403 -> "✗ Clé refusée (${r.code}) : vérifie-la ou crée-en une nouvelle."
+                r.isSuccessful -> "✓ Clé et modèle valides."
+                r.code == 401 || r.code == 403 -> "✗ Clé refusée (${r.code}) : vérifie-la, ou la région (api.minimax.io ≠ api.minimaxi.com)."
+                r.code == 404 || r.code == 400 -> "✗ Modèle ou URL incorrects (${r.code}) $detail"
                 r.code == 429 -> "⚠ Quota atteint (429) : la clé est bonne mais la limite est dépassée."
-                else -> "✗ Erreur ${r.code}."
+                else -> "✗ Erreur ${r.code} $detail"
             }
         }
     }
