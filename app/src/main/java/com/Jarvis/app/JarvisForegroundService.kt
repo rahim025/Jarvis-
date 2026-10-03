@@ -163,7 +163,7 @@ class JarvisForegroundService : Service() {
         avatarWebView = bubbleView.findViewById(R.id.bubbleAvatar)
         avatarWebView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
         avatarWebView.settings.javaScriptEnabled = true
-        avatarWebView.loadUrl("file:///android_asset/jarvis_avatar.html")
+        avatarWebView.loadUrl("file:///android_asset/jarvis_orb.html?compact=1")
 
         val touchCatcher = bubbleView.findViewById<View>(R.id.bubbleTouchCatcher)
 
@@ -177,7 +177,8 @@ class JarvisForegroundService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             overlayType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            // Accélération matérielle : indispensable pour que l'orbe 3D (WebGL) tourne dans la bulle.
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START

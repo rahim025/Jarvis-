@@ -2,7 +2,13 @@ package com.jarvis.app
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.graphics.Bitmap
 import android.graphics.Path
+import android.os.Build
+import android.util.Base64
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -38,6 +44,49 @@ class JarvisAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         instance = null
+    }
+
+    /**
+     * Capture l'écran (Android 11+) et renvoie la photo en JPEG base64, réduite à ~1024 px
+     * de large pour rester légère. À appeler depuis un thread d'arrière-plan (bloque ~1 s).
+     * Sert à la vision : « Jarvis, qu'est-ce que je regarde ? » (analysée par Gemini).
+     */
+    fun captureScreenBase64(): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        val latch = CountDownLatch(1)
+        var result: String? = null
+        takeScreenshot(
+            android.view.Display.DEFAULT_DISPLAY,
+            mainExecutor,
+            object : AccessibilityService.TakeScreenshotCallback {
+                override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
+                    try {
+                        val hw = Bitmap.wrapHardwareBuffer(screenshot.hardwareBuffer, screenshot.colorSpace)
+                        val soft = hw?.copy(Bitmap.Config.ARGB_8888, false)
+                        screenshot.hardwareBuffer.close()
+                        if (soft != null) {
+                            val ratio = 1024f / soft.width.toFloat()
+                            val scaled = if (ratio < 1f)
+                                Bitmap.createScaledBitmap(soft, 1024, (soft.height * ratio).toInt(), true)
+                            else soft
+                            val out = ByteArrayOutputStream()
+                            scaled.compress(Bitmap.CompressFormat.JPEG, 70, out)
+                            result = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                        }
+                    } catch (e: Exception) {
+                        result = null
+                    } finally {
+                        latch.countDown()
+                    }
+                }
+
+                override fun onFailure(errorCode: Int) {
+                    latch.countDown()
+                }
+            }
+        )
+        latch.await(6, TimeUnit.SECONDS)
+        return result
     }
 
     /** Cherche un élément visible à l'écran dont le texte contient [label] et clique dessus. */
