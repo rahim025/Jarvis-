@@ -1,47 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:gravity="center"
-    android:background="#020a14"
-    android:padding="24dp">
+    android:background="#050508">
 
+    <!-- Interface Jarvis (orbe 3D + bulles + micro), portée de la version Windows/mobile. -->
     <WebView
-        android:id="@+id/jarvisAvatar"
-        android:layout_width="220dp"
-        android:layout_height="220dp"
-        android:layout_marginBottom="24dp"
-        android:clickable="true" />
+        android:id="@+id/jarvisUi"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
 
-    <TextView
-        android:id="@+id/statusText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Jarvis est prêt."
-        android:textColor="#eafcff"
-        android:textSize="18sp"
-        android:layout_marginBottom="32dp" />
-
-    <Button
-        android:id="@+id/enableAccessibilityButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="Activer le contrôle d'écran" />
-
-    <Button
-        android:id="@+id/enableBackgroundButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="Activer Jarvis en arrière-plan" />
-
-    <Button
-        android:id="@+id/enableHandCursorButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="Activer le curseur main (caméra)" />
-
-</LinearLayout>
+</FrameLayout>
