@@ -232,7 +232,13 @@ object CommandExecutor {
                         if (b64 == null) {
                             "Je n'arrive pas à capturer l'écran. Il faut Android 11 ou plus, et le contrôle d'écran activé."
                         } else {
-                            BackendClient.analyzeImage(action.question, b64, "image/jpeg", ApiKeyStore.requestExtras(context))
+                            BackendClient.analyzeImage(
+                                action.question,
+                                b64,
+                                "image/jpeg",
+                                ApiKeyStore.requestExtras(context),
+                                service.readScreenText()
+                            )
                         }
                     }
                 }

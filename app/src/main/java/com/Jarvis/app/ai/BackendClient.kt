@@ -135,12 +135,14 @@ object BackendClient {
         prompt: String,
         imageBase64: String,
         mimeType: String = "image/png",
-        extras: JSONObject? = null
+        extras: JSONObject? = null,
+        screenText: String = ""
     ): String {
         val body = JSONObject().apply {
             put("prompt", prompt)
             put("imageBase64", imageBase64)
             put("mimeType", mimeType)
+            if (screenText.isNotBlank()) put("screenText", screenText)
         }
         copyInto(body, extras)
         val request = requestBuilder("$BASE_URL/vision")
@@ -148,7 +150,9 @@ object BackendClient {
             .build()
 
         client.newCall(request).execute().use { response ->
-            val json = JSONObject(response.body?.string() ?: return "Pas de réponse du backend.")
+            val json = runCatching { JSONObject(response.body?.string() ?: "") }.getOrNull()
+                ?: return "Réponse illisible du backend."
+            if (!response.isSuccessful) return "Erreur vision : ${json.optString("error", "inconnue")}"
             return json.optString("text", "Pas de réponse.")
         }
     }

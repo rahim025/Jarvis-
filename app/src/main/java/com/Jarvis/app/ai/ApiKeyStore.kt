@@ -25,11 +25,15 @@ object ApiKeyStore {
         Provider("groq", "Groq", "https://api.groq.com/openai/v1", "openai/gpt-oss-120b"),
         Provider("openai", "OpenAI", "https://api.openai.com/v1", "gpt-4o-mini"),
         Provider("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", "openai/gpt-oss-120b"),
+        Provider("minimax", "MiniMax", "https://api.minimax.io/v1", "MiniMax-M3"),
         Provider("custom", "Autre (compatible OpenAI)", "", "")
     )
 
     /** Gemini sert à la vision d'écran et à la recherche web (pas de cerveau). */
     const val GEMINI_ID = "gemini"
+
+    /** Alias Google qui pointe toujours vers le dernier modèle Flash (évite les noms périmés). */
+    const val DEFAULT_GEMINI_MODEL = "gemini-flash-latest"
 
     private const val FILE = "jarvis_api_keys"
     @Volatile private var cached: SharedPreferences? = null
@@ -77,6 +81,7 @@ object ApiKeyStore {
 
     fun getModel(ctx: Context, id: String): String {
         val saved = prefs(ctx).getString("model_$id", "") ?: ""
+        if (id == GEMINI_ID) return saved.ifBlank { DEFAULT_GEMINI_MODEL }
         return saved.ifBlank { PROVIDERS.firstOrNull { it.id == id }?.defaultModel ?: "" }
     }
 
@@ -124,7 +129,10 @@ object ApiKeyStore {
             }
         }
         val gemini = getKey(ctx, GEMINI_ID)
-        if (gemini.isNotBlank()) out.put("geminiKey", gemini)
+        if (gemini.isNotBlank()) {
+            out.put("geminiKey", gemini)
+            out.put("geminiModel", getModel(ctx, GEMINI_ID))
+        }
         return out
     }
 }
