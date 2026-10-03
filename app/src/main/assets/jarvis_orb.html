@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>J.A.R.V.I.S</title>
+<style>
+/* ── Variables ────────────────────────────────────────────────────────────── */
+:root {
+  --bg: #050508;
+  --blue: #4ca8e8;
+  --blue-glow: rgba(76, 168, 232, 0.5);
+  --blue-dim: rgba(76, 168, 232, 0.15);
+  --green: #22c55e;
+  --green-glow: rgba(34, 197, 94, 0.5);
+  --orange: #f59e0b;
+  --orange-glow: rgba(245, 158, 11, 0.5);
+  --cyan: #0ea5e9;
+  --cyan-glow: rgba(14, 165, 233, 0.5);
+  --red: #ef4444;
+  --red-glow: rgba(239, 68, 68, 0.4);
+  --text: rgba(255, 255, 255, 0.85);
+  --text-dim: rgba(255, 255, 255, 0.35);
+  --glass: rgba(5, 5, 8, 0.6);
+
+  /* Orb colors par état */
+  --orb-color: var(--blue);
+  --orb-glow: var(--blue-glow);
+}
+
+/* ── Reset ────────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  margin: 0; padding: 0; box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  width: 100%; height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── Étoiles ──────────────────────────────────────────────────────────────── */
+#stars {
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(1px 1px at 20% 15%, rgba(255,255,255,0.4) 0%, transparent 100%),
+    radial-gradient(1px 1px at 75% 8%, rgba(255,255,255,0.3) 0%, transparent 100%),
+    radial-gradient(1px 1px at 40% 70%, rgba(255,255,255,0.25) 0%, transparent 100%),
+    radial-gradient(1px 1px at 85% 55%, rgba(255,255,255,0.2) 0%, transparent 100%),
+    radial-gradient(1px 1px at 10% 88%, rgba(255,255,255,0.3) 0%, transparent 100%),
+    radial-gradient(1px 1px at 60% 30%, rgba(255,255,255,0.15) 0%, transparent 100%),
+    radial-gradient(1px 1px at 90% 80%, rgba(255,255,255,0.35) 0%, transparent 100%),
+    radial-gradient(1px 1px at 55% 90%, rgba(255,255,255,0.2) 0%, transparent 100%),
+    radial-gradient(1px 1px at 30% 45%, rgba(255,255,255,0.15) 0%, transparent 100%);
+}
+
+/* ── Badge de connexion ───────────────────────────────────────────────────── */
+#connection-badge {
+  position: fixed; top: 16px; right: 16px;
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 14px;
+  border: 1px solid rgba(76,168,232,0.12);
+  border-radius: 20px;
+  background: var(--glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 100;
+}
+
+#connection-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  flex-shrink: 0;
+  transition: background 0.4s ease, box-shadow 0.4s ease;
+}
+
+#connection-badge.connected #connection-dot {
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green-glow);
+}
+
+#connection-badge.disconnected #connection-dot {
+  background: var(--red);
+  box-shadow: 0 0 8px var(--red-glow);
+  animation: pulse-red 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse-red {
+  0%, 100% { opacity: 1; } 50% { opacity: 0.35; }
+}
+
+#connection-label {
+  font-size: 11px; letter-spacing: 1.5px; font-weight: 300;
+  color: rgba(255,255,255,0.3); text-transform: lowercase;
+  transition: color 0.4s ease;
+}
+
+#connection-badge.connected #connection-label { color: rgba(34,197,94,0.7); }
+#connection-badge.disconnected #connection-label { color: rgba(239,68,68,0.6); }
+
+/* ── Bouton STOP JARVIS ───────────────────────────────────────────────────── */
+#stop-jarvis-btn {
+  position: fixed; top: 16px; left: 16px;
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 20px;
+  background: rgba(239,68,68,0.1);
+  color: rgba(239,68,68,0.9);
+  font-size: 11px; letter-spacing: 1.5px; font-weight: 500;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 100;
+  transition: all 0.3s ease;
+  font-family: inherit;
+  display: none; /* Masqué par défaut, géré par JS */
+}
+
+#stop-jarvis-btn svg {
+  width: 14px; height: 14px;
+}
+
+#stop-jarvis-btn:active {
+  transform: scale(0.95);
+  background: rgba(239,68,68,0.2);
+}
+
+/* ── Layout principal ─────────────────────────────────────────────────────── */
+#app {
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: space-between;
+  padding: 80px 24px 40px;
+  z-index: 10;
+}
+
+/* ── Orbe ─────────────────────────────────────────────────────────────────── */
+#orb-container {
+  position: relative;
+  width: 100%;
+  height: 250px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+#orb-canvas {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: -1;
+}
+
+/* ── États de l'orbe ──────────────────────────────────────────────────────── */
+
+/* Les animations de l'orbe sont maintenant gérées par Three.js dans orb.js */
+
+/* ── Texte de statut ──────────────────────────────────────────────────────── */
+#status-text {
+  font-size: 12px; letter-spacing: 3px; text-transform: lowercase; font-weight: 300;
+  color: rgba(76,168,232,0.6);
+  text-align: center; min-height: 18px;
+  transition: color 0.4s ease, opacity 0.4s ease;
+}
+body.state-listening #status-text { color: rgba(34,197,94,0.8); }
+body.state-thinking  #status-text { color: rgba(245,158,11,0.8); }
+body.state-speaking  #status-text { color: rgba(14,165,233,0.8); }
+
+/* ── Bulles de dialogue ───────────────────────────────────────────────────── */
+.speech-bubble {
+  width: 100%; max-width: 400px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  font-size: 14px; line-height: 1.5; font-weight: 300;
+  min-height: 44px;
+  opacity: 0; transition: opacity 0.4s ease;
+  word-wrap: break-word;
+}
+
+.speech-bubble:not(:empty) { opacity: 1; }
+
+.user-bubble {
+  background: rgba(76,168,232,0.08);
+  border: 1px solid rgba(76,168,232,0.15);
+  color: rgba(255,255,255,0.6);
+  font-style: italic;
+  text-align: right;
+  font-size: 13px;
+}
+
+.jarvis-bubble {
+  background: rgba(14,165,233,0.06);
+  border: 1px solid rgba(14,165,233,0.12);
+  color: rgba(255,255,255,0.85);
+  font-size: 14px;
+}
+
+.jarvis-bubble::before {
+  content: 'JARVIS  ';
+  font-size: 10px; letter-spacing: 2px;
+  color: rgba(14,165,233,0.5); font-weight: 400;
+  display: block; margin-bottom: 4px;
+}
+
+/* ── Zone microphone ──────────────────────────────────────────────────────── */
+#mic-area {
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+}
+
+#mic-btn {
+  width: 80px; height: 80px; border-radius: 50%;
+  border: 1px solid rgba(76,168,232,0.25);
+  background: rgba(5,5,8,0.5);
+  color: rgba(76,168,232,0.7);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#mic-btn:active {
+  transform: scale(0.93);
+}
+
+#mic-btn:hover {
+  border-color: rgba(76,168,232,0.45);
+  color: rgba(76,168,232,0.95);
+  box-shadow: 0 0 20px rgba(76,168,232,0.2);
+}
+
+/* État écoute */
+body.state-listening #mic-btn {
+  border-color: rgba(34,197,94,0.5);
+  color: var(--green);
+  box-shadow: 0 0 30px var(--green-glow), 0 0 60px rgba(34,197,94,0.15);
+  animation: btn-breathe 1s ease-in-out infinite;
+}
+
+/* État thinking/speaking - désactivé */
+body.state-thinking #mic-btn,
+body.state-speaking #mic-btn {
+  opacity: 0.4; cursor: not-allowed; pointer-events: none;
+}
+
+@keyframes btn-breathe {
+  0%, 100% { box-shadow: 0 0 20px var(--green-glow); }
+  50% { box-shadow: 0 0 40px var(--green-glow), 0 0 70px rgba(34,197,94,0.2); }
+}
+
+.mic-icon, .stop-icon {
+  width: 28px; height: 28px;
+}
+
+#mic-label {
+  font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase;
+  color: rgba(255,255,255,0.2); font-weight: 300;
+  transition: color 0.3s ease;
+}
+
+body.state-listening #mic-label { color: rgba(34,197,94,0.6); }
+
+/* ── Label bas de page ────────────────────────────────────────────────────── */
+#assistant-label {
+  font-size: 10px; letter-spacing: 6px; text-transform: uppercase;
+  font-weight: 300; color: rgba(76,168,232,0.15);
+  pointer-events: none;
+}
+
+/* ── Responsive ───────────────────────────────────────────────────────────── */
+@media (max-height: 600px) {
+  #orb-container { height: 150px; }
+  #app { padding: 60px 20px 28px; }
+}
+
+
+/* ── Mode compact (bulle flottante) ───────────────────────────────────────── */
+body.compact #stars, body.compact #connection-badge, body.compact #stop-jarvis-btn,
+body.compact #status-text, body.compact .speech-bubble, body.compact #mic-area,
+body.compact #assistant-label, body.compact #settings-gear { display: none !important; }
+body.compact, body.compact html { background: transparent; }
+body.compact #orb-canvas { clip-path: circle(50%); }
+#settings-gear {
+  position: fixed; bottom: 16px; right: 16px; z-index: 50;
+  width: 42px; height: 42px; border-radius: 50%;
+  border: 1px solid rgba(76,168,232,.3); background: rgba(5,8,22,.5);
+  color: #4ca8e8; font-size: 20px; line-height: 40px; text-align: center;
+  backdrop-filter: blur(8px); cursor: pointer; font-family: inherit;
+}
+#settings-gear:active { transform: scale(.93); }
+#app { overflow-y: auto; }
+
+body.compact #app { padding: 0; justify-content: center; overflow: hidden; }
+body.compact #orb-container { height: 100%; width: 100%; }
+
+/* Secours si WebGL / three.js sont indisponibles : un cœur lumineux qui pulse. */
+body.no-orb #orb-container {
+  width: 220px; height: 220px; border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, rgba(127,233,255,.95), rgba(14,165,233,.35) 55%, transparent 72%);
+  animation: orbpulse 2.2s ease-in-out infinite;
+}
+body.compact.no-orb #orb-container { width: 100%; height: 100%; }
+body.no-orb.state-listening #orb-container { filter: hue-rotate(110deg); }
+body.no-orb.state-thinking #orb-container { filter: hue-rotate(-60deg); animation-duration: 1s; }
+@keyframes orbpulse { 0%,100% { transform: scale(.78); opacity:.8; } 50% { transform: scale(1); opacity:1; } }
+
+</style>
+</head>
+<body>
+  <div id="stars"></div>
+
+  <div id="connection-badge" class="connected">
+    <span id="connection-dot"></span>
+    <span id="connection-label">mémoire active</span>
+  </div>
+
+  <button id="stop-jarvis-btn" aria-label="Stopper JARVIS">
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" fill="currentColor" fill-opacity="0.2"/>
+      <path d="M15 9H9V15H15V9Z" fill="currentColor"/>
+    </svg>
+    STOP
+  </button>
+
+  <main id="app">
+    <div id="orb-container"><canvas id="orb-canvas"></canvas></div>
+    <div id="status-text">en attente</div>
+    <div id="user-text" class="speech-bubble user-bubble"></div>
+    <div id="jarvis-text" class="speech-bubble jarvis-bubble"></div>
+    <div id="mic-area">
+      <button id="mic-btn" aria-label="Parler à JARVIS">
+        <svg class="mic-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor"/>
+          <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <line x1="12" y1="18" x2="12" y2="22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <line x1="8" y1="22" x2="16" y2="22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <svg class="stop-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:none">
+          <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>
+        </svg>
+      </button>
+      <div id="mic-label">APPUYER POUR PARLER</div>
+    </div>
+    <div id="assistant-label">J.A.R.V.I.S</div>
+  </main>
+
+  <button id="settings-gear" aria-label="Menu">&#9881;</button>
+
+<script>
+(function () {
+  var compact = new URLSearchParams(location.search).get('compact') === '1';
+  if (compact) {
+    document.body.classList.add('compact');
+    document.documentElement.style.background = 'transparent';
+    document.body.style.background = 'transparent';
+  }
+
+  var orb = null, currentState = 'idle', fakeVol = null;
+  var statusEl = document.getElementById('status-text');
+  var userEl = document.getElementById('user-text');
+  var jarvisEl = document.getElementById('jarvis-text');
+  var micIcon = document.querySelector('.mic-icon');
+  var stopIcon = document.querySelector('.stop-icon');
+  var micLabel = document.getElementById('mic-label');
+  var stopBtn = document.getElementById('stop-jarvis-btn');
+  var LABELS = { idle: 'en attente', listening: 'je vous écoute...', thinking: 'en réflexion...', speaking: 'jarvis répond...' };
+  var MAP = { idle: 'idle', listening: 'listening', executing: 'thinking', thinking: 'thinking', speaking: 'speaking' };
+
+  function bridge() { return window.Android || null; }
+
+  window.setJarvisState = function (s) {
+    var state = MAP[s] || 'idle';
+    currentState = state;
+    document.body.classList.remove('state-idle', 'state-listening', 'state-thinking', 'state-speaking');
+    document.body.classList.add('state-' + state);
+    statusEl.textContent = LABELS[state];
+    stopBtn.style.display = state === 'speaking' ? 'flex' : 'none';
+    micIcon.style.display = state === 'listening' ? 'none' : 'block';
+    stopIcon.style.display = state === 'listening' ? 'block' : 'none';
+    micLabel.textContent = state === 'listening' ? 'APPUYER POUR ARRÊTER' : 'APPUYER POUR PARLER';
+    if (orb) {
+      orb.setState(state);
+      if (fakeVol) { clearInterval(fakeVol); fakeVol = null; }
+      if (state === 'speaking') {
+        var t = 0;
+        fakeVol = setInterval(function () {
+          t += 0.35;
+          orb.setVolume(Math.max(0, 0.35 + Math.sin(t) * 0.25 + Math.random() * 0.25));
+        }, 80);
+      } else {
+        orb.setVolume(0);
+      }
+    }
+  };
+  window.setUserText = function (t) { userEl.textContent = t || ''; };
+  window.setJarvisText = function (t) { jarvisEl.textContent = t || ''; };
+  window.setBadge = function (t) { document.getElementById('connection-label').textContent = t; };
+
+  document.getElementById('mic-btn').addEventListener('click', function () {
+    if (bridge()) bridge().onMicTap();
+  });
+  stopBtn.addEventListener('click', function () {
+    if (bridge()) bridge().onStopTap();
+  });
+  document.getElementById('settings-gear').addEventListener('click', function () {
+    if (bridge()) bridge().openMenu();
+  });
+  // Sur la bulle (compact) un tap est géré nativement ; ici rien d'autre à faire.
+
+  function loadScript(src, ok, fail) {
+    var s = document.createElement('script');
+    s.src = src; s.onload = ok; s.onerror = fail;
+    document.head.appendChild(s);
+  }
+  function startOrb() {
+    loadScript('orb.js', function () {
+      try {
+        orb = createOrb(document.getElementById('orb-canvas'));
+        window.setJarvisState(currentState);
+      } catch (e) { console.log('Orbe indisponible: ' + e); document.body.classList.add('no-orb'); }
+    }, function () { document.body.classList.add('no-orb'); });
+  }
+  loadScript('three.min.js', startOrb, function () {
+    loadScript('https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js', startOrb, function () {
+      document.body.classList.add('no-orb');
+    });
+  });
+
+  window.setJarvisState('idle');
+})();
+</script>
+</body>
+</html>
