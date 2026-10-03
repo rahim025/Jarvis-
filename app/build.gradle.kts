@@ -56,6 +56,9 @@ dependencies {
 
     // Réseau (appels API Groq / Gemini)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Stockage chiffré des clés API saisies dans l'app
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
 
