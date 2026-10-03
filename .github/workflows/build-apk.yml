@@ -29,8 +29,16 @@ jobs:
         with:
           gradle-version: 8.7
 
+      - name: Télécharger le modèle de suivi de la main et three.js (orbe)
+        run: |
+          mkdir -p app/src/main/assets
+          curl -L -o app/src/main/assets/hand_landmarker.task \
+            https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
+          curl -L -o app/src/main/assets/three.min.js \
+            https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js
+
       - name: Compiler l'APK debug
-        run: gradle assembleDebug
+        run: gradle assembleDebug --stacktrace
 
       - name: Rendre l'APK téléchargeable
         uses: actions/upload-artifact@v4
