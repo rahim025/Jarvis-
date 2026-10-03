@@ -11,6 +11,8 @@ const PORT = process.env.PORT || 3000;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+// Modèle Gemini (vision d'écran + recherche web). L'alias -latest suit toujours le dernier Flash.
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
 const CREATOR_NAME = process.env.CREATOR_NAME || 'Rahim Batchabi';
 const DEFAULT_CITY = process.env.DEFAULT_CITY || 'Cotonou';
 const TIKTOK_USERNAME = (process.env.TIKTOK_USERNAME || '').trim().replace(/^@/, '');
@@ -110,7 +112,7 @@ const CLIENT_TOOLS = [
   tool('open_url', "Ouvre un site web dans le navigateur", { url: "adresse du site" }),
   tool('navigate', "Lance la navigation GPS vers un lieu", { destination: "adresse ou lieu" }),
   tool('device_status', "Donne l'état du téléphone : batterie, mémoire vive, stockage"),
-  tool('describe_screen', "Regarde ce qui est affiché sur l'écran du téléphone et répond à une question dessus (vision)", {
+  tool('describe_screen', "Regarde l'écran du téléphone (capture + texte affiché) comme le ferait l'utilisateur : à utiliser dès qu'il dit « regarde », « qu'est-ce qui est affiché », « lis-moi l'écran », « résume/traduis cette page », « c'est quoi cette erreur », « que dit ce message »…", {
     question: "ce que l'utilisateur veut savoir sur l'écran",
   }),
 ];
@@ -175,10 +177,10 @@ async function getWeather(city) {
   }
 }
 
-async function webSearch(query, geminiKey = GEMINI_API_KEY) {
+async function webSearch(query, geminiKey = GEMINI_API_KEY, geminiModel = GEMINI_MODEL) {
   if (!geminiKey) return "La recherche web n'est pas configurée (clé Gemini manquante : menu ⚙ > Clés API).";
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -222,9 +224,9 @@ async function tiktokFollowers() {
   }
 }
 
-async function runServerTool(name, args, geminiKey) {
+async function runServerTool(name, args, geminiKey, geminiModel) {
   if (name === 'get_weather') return getWeather(args.city);
-  if (name === 'web_search') return webSearch(args.query, geminiKey);
+  if (name === 'web_search') return webSearch(args.query, geminiKey, geminiModel);
   if (name === 'tiktok_followers') return tiktokFollowers();
   return 'Outil inconnu.';
 }
@@ -319,6 +321,11 @@ function resolveLLM(body) {
   return { apiKey, model, baseUrl };
 }
 
+function geminiModelFrom(body) {
+  const m = body && typeof body.geminiModel === 'string' ? body.geminiModel.trim() : '';
+  return /^[\w.\-]+$/.test(m) ? m : GEMINI_MODEL;
+}
+
 function geminiKeyFrom(body) {
   const k = body && typeof body.geminiKey === 'string' ? body.geminiKey.trim() : '';
   return k || GEMINI_API_KEY;
@@ -342,6 +349,10 @@ async function callLLM(messages, llm) {
     err.userMessage = `Fournisseur IA (${response.status}) : ${detail}`;
     throw err;
   }
+  // Certains modèles (MiniMax…) glissent leur raisonnement dans <think>…</think> : on ne le lit pas à voix haute.
+  if (typeof message.content === 'string') {
+    message.content = message.content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  }
   return message;
 }
 
@@ -360,6 +371,7 @@ app.post('/ask', checkSecret, async (req, res) => {
     return res.status(400).json({ error: "Aucune clé API : ajoute-la dans l'app (menu ⚙ > Clés API & fournisseurs)." });
   }
   const geminiKey = geminiKeyFrom(req.body);
+  const geminiModel = geminiModelFrom(req.body);
 
   const facts = req.body.facts && typeof req.body.facts === 'object' ? req.body.facts : {};
   const recent = Array.isArray(req.body.recent) ? req.body.recent : [];
@@ -415,7 +427,7 @@ app.post('/ask', checkSecret, async (req, res) => {
       for (const c of serverCalls) {
         let args = {};
         try { args = JSON.parse(c.function.arguments || '{}'); } catch (e) { /* args vides */ }
-        const result = await runServerTool(c.function.name, args, geminiKey);
+        const result = await runServerTool(c.function.name, args, geminiKey, geminiModel);
         messages.push({ role: 'tool', tool_call_id: c.id, content: String(result) });
       }
     }
@@ -435,15 +447,21 @@ app.post('/ask', checkSecret, async (req, res) => {
 
 // Analyse multimodale (capture d'écran envoyée en base64) par Gemini.
 app.post('/vision', checkSecret, async (req, res) => {
-  const { prompt, imageBase64, mimeType } = req.body;
+  const { prompt, imageBase64, mimeType, screenText } = req.body;
   if (!prompt || !imageBase64) {
     return res.status(400).json({ error: 'Les champs "prompt" et "imageBase64" sont requis.' });
   }
   const geminiKey = geminiKeyFrom(req.body);
   if (!geminiKey) return res.status(400).json({ error: "Clé Gemini manquante : menu ⚙ > Clés API & fournisseurs." });
+  const geminiModel = geminiModelFrom(req.body);
+
+  const screenPart = typeof screenText === 'string' && screenText.trim()
+    ? "\n\nTexte exact lu à l'écran par le téléphone ([bouton] = on peut appuyer, [champ] = zone de saisie) :\n" +
+      screenText.slice(0, 3000)
+    : '';
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -452,8 +470,9 @@ app.post('/vision', checkSecret, async (req, res) => {
           parts: [
             {
               text:
-                "Tu es Jarvis. Voici une capture d'écran du téléphone de l'utilisateur. " +
-                'Réponds en français, en 3 phrases maximum, sans markdown. Question : ' + prompt,
+                "Tu es Jarvis. Voici une capture de l'écran du téléphone de l'utilisateur. Regarde-la comme le ferait " +
+                "l'utilisateur : repère l'application ouverte, le contenu, les messages, les boutons, les erreurs, les couleurs. " +
+                'Réponds en français, naturellement, en 4 phrases maximum, sans markdown, à sa demande : ' + prompt + screenPart,
             },
             { inline_data: { mime_type: mimeType || 'image/png', data: imageBase64 } },
           ],
@@ -462,7 +481,13 @@ app.post('/vision', checkSecret, async (req, res) => {
     });
 
     const data = await response.json();
-    const text = stripMarkdown(data.candidates?.[0]?.content?.parts?.[0]?.text) || '...';
+    const raw = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join(' ');
+    const text = stripMarkdown(raw);
+    if (!text) {
+      const detail = data.error?.message || `réponse vide (HTTP ${response.status})`;
+      console.error('Vision', geminiModel, response.status, detail);
+      return res.status(502).json({ error: `Gemini (${response.status}) : ${detail}` });
+    }
     res.json({ type: 'speak', text });
   } catch (err) {
     console.error(err);
