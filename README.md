@@ -16,6 +16,12 @@ L'interface reprend l'**orbe 3D** et le style de la version Windows/mobile.
 Dossier `backend/`. Variables d'environnement : `GROQ_API_KEY`, `GEMINI_API_KEY`, `APP_SHARED_SECRET`,
 et en option `CREATOR_NAME`, `DEFAULT_CITY` (météo), `TIKTOK_USERNAME`. **Redéploie le backend** : l'app a besoin de la nouvelle version.
 
+## Clés API dans l'app
+
+Menu ⚙ → « Clés API & fournisseurs » : colle ta clé Groq / OpenAI / OpenRouter / autre (compatible OpenAI) et Gemini (vision + recherche web),
+choisis le modèle et le « cerveau » actif, puis « Tester la clé ». Les clés sont chiffrées sur le téléphone et envoyées (en HTTPS) au backend
+à chaque commande ; si rien n'est saisi dans l'app, le backend retombe sur ses variables Render (`GROQ_API_KEY`, `GEMINI_API_KEY`).
+
 ## Mémoire d'éléphant
 
 - Sur le téléphone (SQLite, aucune limite pratique) : **faits** (« retiens que… ») + **journal de tous les échanges**.
