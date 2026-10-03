@@ -96,11 +96,22 @@ class JarvisConversationController(
 
         onAvatarState("executing")
         CoroutineScope(Dispatchers.Main).launch {
-            val action = withContext(Dispatchers.IO) {
-                runCatching { BackendClient.decideAction(text, UserIdentity.getSafe(context)) }
-                    .getOrElse { JarvisAction.Speak("Erreur réseau : ${it.message}") }
+            val memory = JarvisMemory.get(context)
+            var failed = false
+            // Le cerveau reçoit la question + la mémoire utile (faits, derniers échanges, vieux souvenirs).
+            val actions = withContext(Dispatchers.IO) {
+                runCatching {
+                    BackendClient.decideActions(text, UserIdentity.getSafe(context), memory.buildPayload(text))
+                }.getOrElse {
+                    failed = true
+                    listOf<JarvisAction>(JarvisAction.Speak("Erreur réseau : ${it.message}"))
+                }
             }
-            val reply = CommandExecutor.execute(context, action)
+            val reply = CommandExecutor.executeAll(context, actions)
+            // Mémoire d'éléphant : chaque échange réussi est gardé pour toujours.
+            if (!failed) {
+                withContext(Dispatchers.IO) { runCatching { memory.addTurn(text, reply) } }
+            }
             onStatus("Jarvis : $reply")
             onAvatarState("speaking")
             voiceManager.speak(reply)
@@ -114,11 +125,16 @@ class JarvisConversationController(
         voiceManager.startListening()
     }
 
-    /** "Bonjour Monsieur" ou "Bonsoir Monsieur" selon l'heure au Bénin (Africa/Porto-Novo, UTC+1). */
+    /** "Bonjour <prénom>" ou "Bonsoir <prénom>" selon l'heure au Bénin (Africa/Porto-Novo, UTC+1).
+     *  Le prénom vient de la mémoire (« retiens que je m'appelle… »), sinon "Monsieur". */
     private fun greetingMessage(): String {
         val beninZone = TimeZone.getTimeZone("Africa/Porto-Novo")
         val hour = Calendar.getInstance(beninZone).get(Calendar.HOUR_OF_DAY)
-        return if (hour in 5..17) "Bonjour Monsieur." else "Bonsoir Monsieur."
+        val name = runCatching {
+            JarvisMemory.get(context).allFacts()
+                .firstOrNull { it.first in listOf("prénom", "prenom", "nom", "surnom") }?.second
+        }.getOrNull() ?: "Monsieur"
+        return if (hour in 5..17) "Bonjour $name." else "Bonsoir $name."
     }
 
     private fun normalize(text: String): String {
