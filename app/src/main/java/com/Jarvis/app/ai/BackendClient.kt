@@ -63,6 +63,16 @@ object BackendClient {
         .readTimeout(75, TimeUnit.SECONDS)
         .build()
 
+    /** Ajoute les clés/fournisseurs saisis dans l'app (menu ⚙ > Clés API) à la requête. */
+    private fun copyInto(body: JSONObject, extras: JSONObject?) {
+        if (extras == null) return
+        val keys = extras.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            body.put(k, extras.get(k))
+        }
+    }
+
     private fun requestBuilder(url: String): Request.Builder {
         val builder = Request.Builder().url(url).addHeader("Content-Type", "application/json")
         if (BuildConfig.APP_SHARED_SECRET.isNotBlank()) {
@@ -75,10 +85,16 @@ object BackendClient {
      * Envoie le texte reconnu + la mémoire utile (faits, derniers échanges, souvenirs
      * pertinents) au backend, qui interroge Groq et renvoie une ou plusieurs actions.
      */
-    fun decideActions(userText: String, userId: String, memory: JSONObject): List<JarvisAction> {
+    fun decideActions(
+        userText: String,
+        userId: String,
+        memory: JSONObject,
+        extras: JSONObject? = null
+    ): List<JarvisAction> {
         val body = JSONObject(memory.toString())
             .put("text", userText)
             .put("userId", userId)
+        copyInto(body, extras)
         val request = requestBuilder("$BASE_URL/ask")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
@@ -115,12 +131,18 @@ object BackendClient {
     }
 
     /** Envoie une image (ex: capture d'écran) en base64 au backend pour analyse par Gemini. */
-    fun analyzeImage(prompt: String, imageBase64: String, mimeType: String = "image/png"): String {
+    fun analyzeImage(
+        prompt: String,
+        imageBase64: String,
+        mimeType: String = "image/png",
+        extras: JSONObject? = null
+    ): String {
         val body = JSONObject().apply {
             put("prompt", prompt)
             put("imageBase64", imageBase64)
             put("mimeType", mimeType)
         }
+        copyInto(body, extras)
         val request = requestBuilder("$BASE_URL/vision")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()

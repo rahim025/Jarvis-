@@ -101,7 +101,12 @@ class JarvisConversationController(
             // Le cerveau reçoit la question + la mémoire utile (faits, derniers échanges, vieux souvenirs).
             val actions = withContext(Dispatchers.IO) {
                 runCatching {
-                    BackendClient.decideActions(text, UserIdentity.getSafe(context), memory.buildPayload(text))
+                    BackendClient.decideActions(
+                        text,
+                        UserIdentity.getSafe(context),
+                        memory.buildPayload(text),
+                        ApiKeyStore.requestExtras(context)
+                    )
                 }.getOrElse {
                     failed = true
                     listOf<JarvisAction>(JarvisAction.Speak("Erreur réseau : ${it.message}"))
