@@ -1,0 +1,7 @@
+local.properties
+build/
+.gradle/
+*.iml
+.idea/
+backend/node_modules/
+backend/.env
