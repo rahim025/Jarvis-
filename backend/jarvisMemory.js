@@ -8,17 +8,32 @@
 //   (Firebase Console > Paramètres du projet > Comptes de service > Générer une clé)
 //   -> colle tout le JSON sur une seule ligne comme valeur de cette variable.
 
-const admin = require('firebase-admin');
+// NOTE : cette mémoire cloud est OPTIONNELLE. La mémoire d'éléphant principale vit sur le
+// téléphone (SQLite) et est envoyée avec chaque question. Ce module ne s'active que si
+// FIREBASE_SERVICE_ACCOUNT_JSON et EMBEDDING_PROVIDER_URL sont définis.
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)),
-  });
+let admin = null;
+let db = null;
+let FACTS = null;
+let CONVERSATIONS = null;
+let enabled = false;
+
+try {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    admin = require('firebase-admin');
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)),
+      });
+    }
+    db = admin.firestore();
+    FACTS = db.collection('jarvis_facts');
+    CONVERSATIONS = db.collection('jarvis_conversations');
+    enabled = true;
+  }
+} catch (err) {
+  console.error('Firestore indisponible, mémoire cloud désactivée:', err.message);
 }
-
-const db = admin.firestore();
-const FACTS = db.collection('jarvis_facts');
-const CONVERSATIONS = db.collection('jarvis_conversations');
 
 // --- 1) Faits simples (clé/valeur) --------------------------------------
 
@@ -112,7 +127,7 @@ async function buildMemoryContext(userId, userText) {
     .join('\n\n');
 }
 
-module.exports = { saveFact, getFacts, saveTurn, recallRelevant, buildMemoryContext };
+module.exports = { enabled, saveFact, getFacts, saveTurn, recallRelevant, buildMemoryContext };
 
 
 // --- Exemple d'intégration dans ta route /ask (à adapter) -----------------
