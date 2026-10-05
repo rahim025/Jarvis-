@@ -19,6 +19,12 @@ object AutoReplyStore {
         "messenger" to listOf("com.facebook.orca", "com.facebook.mlite", "com.facebook.katana", "com.facebook.lite")
     )
 
+    /** Sujets qu'on ne laisse JAMAIS à un robot (argent, codes, urgences), vérifiés avant tout appel au cerveau. */
+    val SENSITIVE = Regex(
+        "(mot de passe|password|\\bcode\\b|\\botp\\b|\\b\\d{4,8}\\b|virement|argent|fcfa|\\bxof\\b|momo|mobile money|transfert|pr[eê]te[- ]moi|rembourse|urgence|urgent)",
+        RegexOption.IGNORE_CASE
+    )
+
     private fun prefs(c: Context) = c.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
     /** Clé d'app (« whatsapp » / « messenger ») depuis un paquet Android, ou null si non surveillée. */

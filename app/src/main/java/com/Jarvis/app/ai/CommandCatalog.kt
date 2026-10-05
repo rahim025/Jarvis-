@@ -114,6 +114,8 @@ object CommandCatalog {
 
         // 💬 Réponses automatiques
         cmd("auto_reply", CommandCategory.MESSAGES, "Réponds à ma place à Crépin sur {app}", apps = listOf("WhatsApp"), messagingOnly = true, tags = listOf("automatique", "repondre", "discuter")),
+        cmd("keep_conversation", CommandCategory.MESSAGES, "Garde la conversation avec cette personne", tags = listOf("discussion", "ecran", "automatique", "repondre")),
+        cmd("keep_conversation", CommandCategory.MESSAGES, "Discute avec elle à ma place", tags = listOf("discussion", "ecran", "automatique", "repondre")),
         cmd("auto_reply", CommandCategory.MESSAGES, "Réponds à tout le monde à ma place", tags = listOf("automatique", "repondre")),
         cmd("auto_reply", CommandCategory.MESSAGES, "Arrête les réponses automatiques", tags = listOf("automatique", "repondre")),
         cmd("auto_reply", CommandCategory.MESSAGES, "À qui réponds-tu à ma place ?", tags = listOf("automatique", "repondre")),

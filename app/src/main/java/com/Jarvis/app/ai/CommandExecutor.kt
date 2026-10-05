@@ -53,12 +53,13 @@ object CommandExecutor {
         JarvisAction.GoHome, JarvisAction.GoBack, JarvisAction.CloseApp, is JarvisAction.Scroll,
         is JarvisAction.PlayMusic, is JarvisAction.OpenUrl, is JarvisAction.Navigate,
         is JarvisAction.DescribeScreen, is JarvisAction.RunTask, is JarvisAction.SetToggle,
-        is JarvisAction.ShowCommands -> true
+        is JarvisAction.ShowCommands, is JarvisAction.KeepConversation -> true
         else -> false
     }
 
     /** Tâches qui peuvent durer plusieurs secondes (pilotage d'écran en plusieurs étapes). */
-    fun isLongTask(a: JarvisAction): Boolean = a is JarvisAction.RunTask || a is JarvisAction.SetToggle
+    fun isLongTask(a: JarvisAction): Boolean =
+        a is JarvisAction.RunTask || a is JarvisAction.SetToggle || a is JarvisAction.KeepConversation
 
     /**
      * Exécute les actions de la commande :
@@ -275,6 +276,8 @@ object CommandExecutor {
             is JarvisAction.ShowCommands -> CommandsLauncher.show(context, action.filter)
 
             is JarvisAction.AutoReply -> autoReplyCommand(context, action)
+
+            is JarvisAction.KeepConversation -> ScreenChat.keep(context, action.contact)
 
             is JarvisAction.DescribeScreen -> {
                 val service = JarvisAccessibilityService.instance

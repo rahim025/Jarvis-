@@ -61,6 +61,8 @@ sealed class JarvisAction {
     data class ShowCommands(val filter: String) : JarvisAction()
     /** mode : "on", "off" ou "status" — réponses automatiques aux messages entrants (voir JarvisNotificationListener). */
     data class AutoReply(val mode: String, val contact: String, val app: String) : JarvisAction()
+    /** « Garde la conversation avec cette personne » : lit la discussion ouverte à l'écran (voir ScreenChat). */
+    data class KeepConversation(val contact: String) : JarvisAction()
 }
 
 /** Prochaine action décidée par le cerveau pour piloter l'écran (boucle adaptative de TaskRunner). */
@@ -283,6 +285,39 @@ object BackendClient {
         }
     }
 
+    data class ScreenChatResult(
+        val isChat: Boolean,
+        val group: Boolean,
+        val contact: String,
+        /** (écrit par moi ?, texte), du plus ancien au plus récent. */
+        val messages: List<Pair<Boolean, String>>,
+        val summary: String
+    )
+
+    /** Fait lire par le cerveau la discussion affichée à l'écran (capture + éléments avec leur position). */
+    fun readChat(imageBase64: String?, elements: JSONArray, app: String, extras: JSONObject? = null): ScreenChatResult? {
+        val body = JSONObject().put("elements", elements).put("app", app)
+        if (!imageBase64.isNullOrBlank()) body.put("imageBase64", imageBase64).put("mimeType", "image/jpeg")
+        copyInto(body, extras)
+        val request = requestBuilder("$BASE_URL/read-chat")
+            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        client.newCall(request).execute().use { response ->
+            val json = runCatching { JSONObject(response.body?.string() ?: "") }.getOrNull() ?: return null
+            if (!response.isSuccessful) return null
+            val arr = json.optJSONArray("messages") ?: JSONArray()
+            val msgs = (0 until arr.length()).mapNotNull { i ->
+                val m = arr.optJSONObject(i) ?: return@mapNotNull null
+                val t = m.optString("text").trim()
+                if (t.isBlank()) null else m.optBoolean("fromMe", false) to t
+            }
+            return ScreenChatResult(
+                json.optBoolean("isChat", false), json.optBoolean("group", false),
+                json.optString("contact"), msgs, json.optString("summary")
+            )
+        }
+    }
+
     private fun parseAction(name: String, args: JSONObject): JarvisAction = when (name) {
         "speak" -> JarvisAction.Speak(args.optString("text", "..."))
         "open_app" -> JarvisAction.OpenApp(args.optString("app_name"))
@@ -346,6 +381,7 @@ object BackendClient {
             args.optString("state").lowercase() in listOf("on", "true", "allume", "active", "1")
         )
         "show_commands" -> JarvisAction.ShowCommands(args.optString("filter"))
+        "keep_conversation" -> JarvisAction.KeepConversation(args.optString("contact"))
         "auto_reply" -> JarvisAction.AutoReply(
             args.optString("mode", "on").lowercase(), args.optString("contact"), args.optString("app")
         )
