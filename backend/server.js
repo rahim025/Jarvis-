@@ -112,6 +112,22 @@ const CLIENT_TOOLS = [
   tool('open_url', "Ouvre un site web dans le navigateur", { url: "adresse du site" }),
   tool('navigate', "Lance la navigation GPS vers un lieu", { destination: "adresse ou lieu" }),
   tool('device_status', "Donne l'état du téléphone : batterie, mémoire vive, stockage"),
+  tool('run_task', "Exécute une tâche en PLUSIEURS ÉTAPES dans une application (ouvrir l'app, chercher, écrire, envoyer…), en vérifiant chaque étape et en s'adaptant si l'écran change. À utiliser dès qu'une demande enchaîne plusieurs actions à l'écran (ex: « ouvre WhatsApp, cherche Crépin, écris Salut et envoie ») au lieu d'enchaîner open_app / click_on_screen / type_text.", {
+    kind: "send_message (envoyer un message à un contact dans une app de messagerie), search (chercher quelque chose dans une app) ou other (toute autre tâche à plusieurs étapes)",
+    app: "nom de l'application, ex: WhatsApp",
+    goal: "objectif complet en une phrase claire, ex: Ouvrir WhatsApp, chercher Crépin, écrire Salut et envoyer",
+    contact: "pour send_message : nom du contact (optionnel sinon)",
+    message: "pour send_message : texte EXACT du message à envoyer",
+    query: "pour search : le texte à chercher (optionnel sinon)",
+    submit: "true pour valider la recherche avec Entrée (YouTube, Google, Play Store…), false pour une simple recherche de contact ou de discussion",
+  }, ['kind', 'app', 'goal']),
+  tool('set_toggle', "Active ou désactive le Wi-Fi ou le Bluetooth du téléphone", {
+    setting: "wifi ou bluetooth",
+    state: "on ou off",
+  }),
+  tool('show_commands', "Affiche à l'écran la liste des commandes disponibles, regroupées par catégories, quand l'utilisateur demande les commandes, ce que tu sais faire, ou « les commandes pour WhatsApp »", {
+    filter: "application ou thème à filtrer, ex: WhatsApp, système, appels (vide = toutes les commandes)",
+  }, []),
   tool('describe_screen', "Regarde l'écran du téléphone (capture + texte affiché) comme le ferait l'utilisateur : à utiliser dès qu'il dit « regarde », « qu'est-ce qui est affiché », « lis-moi l'écran », « résume/traduis cette page », « c'est quoi cette erreur », « que dit ce message »…", {
     question: "ce que l'utilisateur veut savoir sur l'écran",
   }),
@@ -266,6 +282,9 @@ function buildSystemPrompt({ facts, relevant, now, cloudContext }) {
       '- Pour la météo sans ville précisée, utilise la ville des faits connus si elle existe.\n' +
       '- Dès que l\'utilisateur te dit de retenir quelque chose, ou partage une information personnelle durable ' +
       '(prénom, ville, goûts, anniversaires, proches, projets), appelle memorize avec une clé courte.\n' +
+      '- Quand une demande enchaîne plusieurs actions DANS une application (ouvrir, chercher, écrire, envoyer…), appelle UNE SEULE fois run_task ' +
+      '(send_message pour envoyer un message, search pour chercher, other sinon) : n\'enchaîne jamais open_app, click_on_screen et type_text toi-même, ' +
+      'car run_task attend et vérifie chaque étape. Pour le Wi-Fi ou le Bluetooth, utilise set_toggle. Pour « affiche les commandes », utilise show_commands.\n' +
       '- Pour appeler : « appelle X » = call_contact (appel normal), « appelle X sur WhatsApp » = whatsapp_call. ' +
       'Si l\'utilisateur désigne quelqu\'un par un surnom (maman, mon amour...), garde exactement ses mots dans contact ; ' +
       'l\'application retrouvera le bon contact.\n' +
@@ -331,11 +350,11 @@ function geminiKeyFrom(body) {
   return k || GEMINI_API_KEY;
 }
 
-async function callLLM(messages, llm) {
+async function callLLM(messages, llm, tools = TOOLS) {
   const response = await fetch(`${llm.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${llm.apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: llm.model, tools: TOOLS, messages }),
+    body: JSON.stringify({ model: llm.model, ...(tools ? { tools } : {}), messages }),
   });
   const text = await response.text();
   let data;
@@ -438,6 +457,77 @@ app.post('/ask', checkSecret, async (req, res) => {
       cloudMemory.saveTurn(userId, 'assistant', finalText).catch(() => {});
     }
     return res.json({ type: 'speak', text: finalText });
+  } catch (err) {
+    console.error(err);
+    if (err.userMessage) return res.status(502).json({ error: err.userMessage });
+    res.status(500).json({ error: 'Erreur serveur', detail: err.message });
+  }
+});
+
+// Boucle adaptative : l'app envoie l'écran actuel + l'historique, on renvoie la PROCHAINE action.
+const AGENT_ACTIONS = new Set(['click', 'type', 'enter', 'scroll', 'back', 'home', 'open_app', 'wait', 'done', 'fail']);
+
+function parseJsonObject(text) {
+  const m = String(text || '').match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try { return JSON.parse(m[0]); } catch (e) { return null; }
+}
+
+app.post('/agent', checkSecret, async (req, res) => {
+  const { goal } = req.body;
+  if (!goal) return res.status(400).json({ error: 'Le champ "goal" est requis.' });
+  let llm;
+  try {
+    llm = resolveLLM(req.body);
+  } catch (e) {
+    return res.status(400).json({ error: e.userMessage || e.message });
+  }
+  if (!llm.apiKey) {
+    return res.status(400).json({ error: "Aucune clé API : ajoute-la dans l'app (menu ⚙ > Clés API & fournisseurs)." });
+  }
+  const elements = Array.isArray(req.body.elements) ? req.body.elements.slice(0, 80) : [];
+  const history = Array.isArray(req.body.history) ? req.body.history.slice(-12) : [];
+
+  const system =
+    "Tu pilotes un téléphone Android pour atteindre un objectif, UNE action à la fois. " +
+    "Tu reçois l'objectif, l'application au premier plan, la liste numérotée des éléments visibles " +
+    "(k = texte | bouton | champ | case, c = état d'une case) et l'historique des actions déjà tentées avec leur résultat.\n" +
+    'Réponds UNIQUEMENT par un objet JSON, sans markdown : {"action": "click|type|enter|scroll|back|home|open_app|wait|done|fail", ' +
+    '"index": numéro de l\'élément (click, type, enter), "text": "texte à taper (type)", "direction": "up|down|left|right (scroll)", ' +
+    '"app": "nom (open_app)", "reason": "justification courte", "say": "phrase à dire à voix haute (done ou fail)"}.\n' +
+    "Règles :\n" +
+    "- Choisis l'élément qui fait avancer l'objectif. Pour écrire, utilise type sur un champ (ou le champ actif).\n" +
+    "- Regarde l'historique : si une action a eu « aucun effet » ou a échoué, change de stratégie (autre élément, défiler, retour, autre chemin). Ne répète jamais la même action qui a échoué.\n" +
+    "- Si l'élément cherché n'est pas visible, essaie de défiler ou d'ouvrir un menu avant d'abandonner.\n" +
+    "- Utilise done UNIQUEMENT quand l'écran prouve que l'objectif est atteint ; say = confirmation courte en français.\n" +
+    "- Ne fais jamais d'achat, de paiement, de suppression ni d'envoi d'argent, sauf si l'objectif le demande explicitement.\n" +
+    "- Si l'objectif est impossible ou bloqué, utilise fail avec une explication courte dans say.";
+
+  const user =
+    `Objectif : ${goal}\n` +
+    `Application au premier plan : ${req.body.package || 'inconnue'}\n` +
+    `Éléments visibles :\n${JSON.stringify(elements)}\n` +
+    `Historique :\n${history.length ? history.join('\n') : '(aucune action pour le moment)'}`;
+
+  try {
+    const message = await callLLM(
+      [{ role: 'system', content: system }, { role: 'user', content: user }],
+      llm,
+      null
+    );
+    const decision = parseJsonObject(message.content);
+    if (!decision || !AGENT_ACTIONS.has(String(decision.action))) {
+      return res.json({ action: 'wait', reason: 'réponse du cerveau illisible' });
+    }
+    res.json({
+      action: String(decision.action),
+      index: decision.index === undefined || decision.index === null ? null : Number(decision.index),
+      text: decision.text ? String(decision.text) : '',
+      direction: decision.direction ? String(decision.direction) : '',
+      app: decision.app ? String(decision.app) : '',
+      reason: decision.reason ? String(decision.reason) : '',
+      say: decision.say ? stripMarkdown(decision.say) : '',
+    });
   } catch (err) {
     console.error(err);
     if (err.userMessage) return res.status(502).json({ error: err.userMessage });
