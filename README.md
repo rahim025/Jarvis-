@@ -36,6 +36,24 @@ météo, recherche web (actus, sport, prix), abonnés TikTok, volume, musique (S
 luminosité, alarmes, minuteurs, ouvrir un site, navigation GPS, état du téléphone (batterie/RAM/stockage),
 **vision d'écran** (« qu'est-ce que je regarde ? », Android 11+, via Gemini), plusieurs commandes dans la même phrase.
 
+## Tâches en plusieurs étapes
+
+Dis une phrase naturelle : « Ouvre WhatsApp, cherche Crépin, écris “Salut” et envoie le message ».
+Jarvis ouvre l'app, cherche, écrit et envoie, **en vérifiant chaque étape** (l'écran doit prouver que ça a marché) avant la suivante,
+puis confirme à voix haute. Si l'interface a changé ou si un élément est introuvable, il bascule sur une boucle adaptative :
+il regarde l'écran, le cerveau choisit la prochaine action, on vérifie son effet, et il essaie une autre piste si rien ne bouge.
+Par sécurité il refuse de toucher à un bouton d'achat / paiement / suppression que tu n'as pas demandé. Un appui sur le micro ou la bulle interrompt la tâche.
+Nécessite le contrôle d'écran activé (menu ⚙). Le mode « Jarvis en arrière-plan » (bulle) est conseillé : il continue d'écouter pendant qu'une autre app est ouverte.
+
+## Voir les commandes
+
+« Affiche les commandes » / « Montre-moi les commandes » ouvre la liste de toutes les commandes, par catégories ; un appui sur une commande la lance
+(celles avec un [champ] te demandent la valeur). « Cherche les commandes pour WhatsApp » (ou « …système », « …appels ») filtre la liste.
+
+**Ajouter une capacité** : outil dans `backend/server.js` + parsing dans `BackendClient.parseAction` + une ligne `cmd(...)` dans
+`CommandCatalog.kt`. Le script `scripts/check-commands.js` (lancé par GitHub Actions) fait échouer le build s'il manque la ligne du catalogue :
+la liste affichée est donc toujours à jour. Pense à redéployer le backend.
+
 ## Sécurité
 
 `local.properties` et `backend/.env` sont dans `.gitignore` — ne les publie jamais.
