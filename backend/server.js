@@ -128,6 +128,11 @@ const CLIENT_TOOLS = [
   tool('show_commands', "Affiche à l'écran la liste des commandes disponibles, regroupées par catégories, quand l'utilisateur demande les commandes, ce que tu sais faire, ou « les commandes pour WhatsApp »", {
     filter: "application ou thème à filtrer, ex: WhatsApp, système, appels (vide = toutes les commandes)",
   }, []),
+  tool('auto_reply', "Active, coupe ou résume les RÉPONSES AUTOMATIQUES : Jarvis répond à la place de l'utilisateur, comme s'il écrivait lui-même, aux messages WhatsApp / Messenger / Facebook de certains contacts (ex: « réponds à ma place à Crépin », « discute avec Maman sur WhatsApp », « arrête les réponses automatiques », « pour qui réponds-tu ? »). N'utilise PAS run_task pour ça.", {
+    mode: "on (activer), off (arrêter), status (dire pour qui c'est actif) ou forget (effacer ce que Jarvis retient de la conversation avec ce contact)",
+    contact: "nom du contact, ou « tout le monde » ; vide pour tout arrêter ou pour status",
+    app: "whatsapp, messenger ou facebook (optionnel)",
+  }, ['mode']),
   tool('describe_screen', "Regarde l'écran du téléphone (capture + texte affiché) comme le ferait l'utilisateur : à utiliser dès qu'il dit « regarde », « qu'est-ce qui est affiché », « lis-moi l'écran », « résume/traduis cette page », « c'est quoi cette erreur », « que dit ce message »…", {
     question: "ce que l'utilisateur veut savoir sur l'écran",
   }),
@@ -528,6 +533,118 @@ app.post('/agent', checkSecret, async (req, res) => {
       reason: decision.reason ? String(decision.reason) : '',
       say: decision.say ? stripMarkdown(decision.say) : '',
     });
+  } catch (err) {
+    console.error(err);
+    if (err.userMessage) return res.status(502).json({ error: err.userMessage });
+    res.status(500).json({ error: 'Erreur serveur', detail: err.message });
+  }
+});
+
+// Durée écoulée, dite comme à l'oral (« il y a 5 min », « hier »).
+function agoText(ms) {
+  const m = Math.max(0, Math.round(ms / 60000));
+  if (m < 2) return "à l'instant";
+  if (m < 60) return `il y a ${m} min`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `il y a ${h} h`;
+  const d = Math.round(h / 24);
+  return d === 1 ? 'hier' : `il y a ${d} jours`;
+}
+
+function historyLines(history, nowMs, contact) {
+  return history
+    .map((m) => `[${agoText(nowMs - Number(m.ts || nowMs))}] ${m.fromMe ? 'Moi' : contact} : ${String(m.text || '').slice(0, 500)}`)
+    .join('\n');
+}
+
+// Réponses automatiques : écrit la réponse que l'utilisateur aurait donnée, en gardant le fil de la conversation.
+app.post('/reply', checkSecret, async (req, res) => {
+  const contact = String(req.body.contact || '').slice(0, 80);
+  const history = Array.isArray(req.body.history) ? req.body.history.slice(-30) : [];
+  if (!contact || !history.length) return res.status(400).json({ error: 'contact et history sont requis.' });
+  let llm;
+  try {
+    llm = resolveLLM(req.body);
+  } catch (e) {
+    return res.status(400).json({ error: e.userMessage || e.message });
+  }
+  if (!llm.apiKey) return res.status(400).json({ error: "Aucune clé API : ajoute-la dans l'app (menu ⚙ > Clés API & fournisseurs)." });
+
+  const nowMs = Number(req.body.nowMs) || Date.now();
+  const nowText = new Date(nowMs).toLocaleString('fr-FR', { timeZone: 'Africa/Porto-Novo', dateStyle: 'full', timeStyle: 'short' });
+  const summary = typeof req.body.summary === 'string' ? req.body.summary.slice(0, 2500) : '';
+
+  const system =
+    `Tu écris à la place de ${CREATOR_NAME}, sur ${req.body.app || 'une messagerie'}, pour répondre à son contact « ${contact} ». ` +
+    "Tu dois te comporter comme lui : un vrai interlocuteur qui suit la conversation, pas un répondeur qui réagit au dernier message isolé.\n" +
+    "Tu reçois : ce qu'on sait de lui, un résumé des échanges plus anciens avec ce contact (détails retenus : projets, rendez-vous, questions en suspens), " +
+    "et le fil récent daté (« Moi » = lui). Lis TOUT avant d'écrire.\n" +
+    "Garder le fil :\n" +
+    "- Réponds au dernier message EN TENANT COMPTE de ce qui s'est dit avant : sujet en cours, question restée sans réponse, détail donné par le contact (prénoms, projets, rendez-vous, humeur).\n" +
+    "- Ne te représente pas et ne resalue pas si l'échange est en cours (dernier message il y a moins de ~3 h). Après une longue pause, un petit salut naturel suffit.\n" +
+    "- Cohérence : ne contredis JAMAIS ce que « Moi » a déjà dit ou promis plus haut, et ne répète pas une phrase déjà envoyée.\n" +
+    "- Fais vivre l'échange comme un humain : tu peux rebondir sur un détail ou poser une question simple, sans en faire trop. Sache aussi conclure (« ok à plus », « merci ») sans relancer.\n" +
+    "- Si le dernier message n'appelle pas de réponse (simple « ok », « 👍 », « merci » qui clôt la discussion), mets skip à true avec la raison « rien à répondre ».\n" +
+    "Style : même langue que le contact, même ton, mêmes tournures, même longueur et mêmes habitudes (abréviations, émojis, ponctuation) que les messages « Moi » de l'historique. " +
+    "Court et naturel, sans markdown, sans guillemets, sans te présenter.\n" +
+    'Réponds UNIQUEMENT par un objet JSON : {"skip": true|false, "reason": "raison courte en français si skip", "reply": "le message à envoyer", ' +
+    '"remember": "UN détail durable et utile à retenir sur ce contact ou la conversation (ex: passe son examen vendredi ; attend une réponse sur le prix), ou vide"}.\n' +
+    "Mets skip à true (et ne réponds pas) dans ces cas :\n" +
+    "- argent, paiement, transfert, prêt, mot de passe, code de vérification, données personnelles ou bancaires ;\n" +
+    "- le contact demande un engagement (rendez-vous, promesse, décision, accord) ou une information que tu ne connais pas ;\n" +
+    "- le contact demande sincèrement s'il parle à un robot / une IA / au vrai " + CREATOR_NAME + " (ne mens jamais là-dessus) ;\n" +
+    "- urgence, santé, conflit, sujet grave ou émotionnel, ou tu n'es pas sûr de ce qu'il répondrait.\n" +
+    "N'invente jamais de faits sur sa vie : en cas de doute, skip.";
+
+  const user =
+    `Date et heure actuelles (Bénin) : ${nowText}\n` +
+    `Ce qu'on sait de ${CREATOR_NAME} : ${JSON.stringify(req.body.facts || {})}\n` +
+    `Résumé des échanges plus anciens avec ${contact} :\n${summary || '(aucun pour le moment)'}\n` +
+    `Fil récent (du plus ancien au plus récent) :\n${historyLines(history, nowMs, contact)}`;
+
+  try {
+    const message = await callLLM([{ role: 'system', content: system }, { role: 'user', content: user }], llm, null);
+    const out = parseJsonObject(message.content);
+    if (!out) return res.json({ skip: true, reason: 'réponse du cerveau illisible', reply: '', remember: '' });
+    const reply = out.reply ? stripMarkdown(String(out.reply)).trim() : '';
+    res.json({
+      skip: out.skip === true || !reply,
+      reason: out.reason ? String(out.reason) : '',
+      reply,
+      remember: out.remember ? String(out.remember).slice(0, 160) : '',
+    });
+  } catch (err) {
+    console.error(err);
+    if (err.userMessage) return res.status(502).json({ error: err.userMessage });
+    res.status(500).json({ error: 'Erreur serveur', detail: err.message });
+  }
+});
+
+// Condense les vieux échanges d'une conversation + l'ancien résumé en un résumé court et à jour.
+app.post('/summarize', checkSecret, async (req, res) => {
+  const contact = String(req.body.contact || '').slice(0, 80);
+  const messages = Array.isArray(req.body.messages) ? req.body.messages.slice(-120) : [];
+  const previous = typeof req.body.summary === 'string' ? req.body.summary.slice(0, 3000) : '';
+  if (!contact) return res.status(400).json({ error: 'contact requis.' });
+  let llm;
+  try {
+    llm = resolveLLM(req.body);
+  } catch (e) {
+    return res.status(400).json({ error: e.userMessage || e.message });
+  }
+  if (!llm.apiKey) return res.status(400).json({ error: 'Aucune clé API.' });
+
+  const nowMs = Date.now();
+  const system =
+    `Tu tiens la mémoire des conversations de ${CREATOR_NAME}. Fusionne l'ancien résumé et les nouveaux échanges avec « ${contact} » ` +
+    "en UN résumé de 12 lignes maximum, en français, sous forme de puces « • ». Garde ce qui compte pour reprendre la conversation plus tard : " +
+    "qui est ce contact pour lui et le ton de leur relation, sujets en cours, projets et dates, ce qui a été promis ou demandé, questions restées sans réponse. " +
+    "Supprime le bavardage sans importance et ce qui est périmé. N'invente rien. Réponds UNIQUEMENT par le résumé.";
+  const user =
+    `Ancien résumé :\n${previous || '(aucun)'}\n\nNouveaux échanges :\n${historyLines(messages, nowMs, contact)}`;
+  try {
+    const message = await callLLM([{ role: 'system', content: system }, { role: 'user', content: user }], llm, null);
+    res.json({ summary: stripMarkdown(String(message.content || '')).trim().slice(0, 2000) });
   } catch (err) {
     console.error(err);
     if (err.userMessage) return res.status(502).json({ error: err.userMessage });
