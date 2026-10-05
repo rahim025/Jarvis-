@@ -42,12 +42,6 @@ class JarvisNotificationListener : NotificationListenerService() {
     private val pending = ConcurrentHashMap<String, Job>()
     private val sent = ConcurrentHashMap<String, MutableList<Long>>()
 
-    // Sujets qu'on ne laisse JAMAIS à un robot, même avant d'interroger le cerveau.
-    private val SENSITIVE = Regex(
-        "(mot de passe|password|\\bcode\\b|\\botp\\b|\\b\\d{4,8}\\b|virement|argent|fcfa|\\bxof\\b|momo|mobile money|transfert|pr[eê]te[- ]moi|rembourse|urgence|urgent)",
-        RegexOption.IGNORE_CASE
-    )
-
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         runCatching { handle(sbn) }
     }
@@ -90,7 +84,7 @@ class JarvisNotificationListener : NotificationListenerService() {
         val last = style.messages.lastOrNull() ?: return
         if (last.person == null) return // j'ai déjà répondu entre-temps
 
-        if (SENSITIVE.containsMatchIn(last.text ?: "")) {
+        if (AutoReplyStore.SENSITIVE.containsMatchIn(last.text ?: "")) {
             alert(contact, "sujet sensible (argent, code, urgence…)", last.text.toString())
             return
         }
