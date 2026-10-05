@@ -18,6 +18,7 @@ import android.provider.ContactsContract
 import android.provider.MediaStore
 import android.provider.Settings
 import android.view.KeyEvent
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.jarvis.app.JarvisAccessibilityService
 import kotlinx.coroutines.Dispatchers
@@ -273,6 +274,8 @@ object CommandExecutor {
 
             is JarvisAction.ShowCommands -> CommandsLauncher.show(context, action.filter)
 
+            is JarvisAction.AutoReply -> autoReplyCommand(context, action)
+
             is JarvisAction.DescribeScreen -> {
                 val service = JarvisAccessibilityService.instance
                 if (service == null) {
@@ -295,6 +298,71 @@ object CommandExecutor {
                 }
             }
         }
+    }
+
+    // ── Réponses automatiques (WhatsApp / Messenger / Facebook) ───────────────
+
+    private fun autoReplyCommand(context: Context, a: JarvisAction.AutoReply): String {
+        val contact = a.contact.trim()
+        val everyone = contact.lowercase() in listOf("tout le monde", "tous", "tous mes contacts", "everyone", "all")
+        val appKey = AutoReplyStore.appKeyFromName(a.app)
+
+        when (a.mode.lowercase()) {
+            "off" -> {
+                return when {
+                    contact.isBlank() && appKey != null -> {
+                        AutoReplyStore.setApp(context, appKey, false)
+                        "Je ne réponds plus à ta place sur ${a.app}."
+                    }
+                    contact.isBlank() || everyone -> {
+                        AutoReplyStore.setEnabled(context, false)
+                        AutoReplyStore.setAnswerAll(context, false)
+                        "Réponses automatiques arrêtées."
+                    }
+                    else -> {
+                        AutoReplyStore.removeContact(context, contact)
+                        "Je ne réponds plus à $contact à ta place."
+                    }
+                }
+            }
+            "forget" -> {
+                if (contact.isBlank()) return "De quel contact dois-je effacer la conversation ?"
+                return if (ConversationStore.get(context).clear(contact))
+                    "J'ai effacé tout ce que je retenais de ta conversation avec $contact."
+                else "Je n'avais rien de retenu sur la conversation avec $contact."
+            }
+            "status" -> {
+                if (!AutoReplyStore.isEnabled(context)) return "Les réponses automatiques sont désactivées."
+                val apps = AutoReplyStore.apps(context).joinToString(" et ") { if (it == "messenger") "Messenger" else "WhatsApp" }
+                return if (AutoReplyStore.answersAll(context)) "Je réponds à tous tes contacts en privé sur $apps."
+                else {
+                    val list = AutoReplyStore.contacts(context)
+                    if (list.isEmpty()) "Les réponses automatiques sont activées, mais aucun contact n'est choisi."
+                    else "Je réponds à ta place à ${list.joinToString(", ")} sur $apps."
+                }
+            }
+        }
+
+        // mode « on »
+        when {
+            everyone -> AutoReplyStore.setAnswerAll(context, true)
+            contact.isNotBlank() -> AutoReplyStore.addContact(context, contact)
+            AutoReplyStore.contacts(context).isEmpty() && !AutoReplyStore.answersAll(context) ->
+                return "Dis-moi à quel contact je dois répondre, par exemple : réponds à ma place à Crépin."
+        }
+        AutoReplyStore.setEnabled(context, true)
+        if (appKey != null) AutoReplyStore.setApp(context, appKey, true)
+
+        if (!NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)) {
+            context.startActivity(
+                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+            return "Autorise Jarvis à lire les notifications dans les réglages qui viennent de s'ouvrir, puis redis-moi la commande."
+        }
+        return if (everyone)
+            "C'est activé : je réponds à ta place à tous tes contacts en privé, pas dans les groupes. Dis arrête les réponses automatiques pour couper."
+        else
+            "C'est activé : je réponds à ta place à $contact. Je te préviens si le sujet est sensible."
     }
 
     // ── Détails des fonctions système ──────────────────────────────────────────

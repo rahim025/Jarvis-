@@ -112,6 +112,13 @@ object CommandCatalog {
         cmd("speaker", CommandCategory.CALLS, "Active le haut-parleur", tags = listOf("haut parleur")),
         cmd("speaker", CommandCategory.CALLS, "Coupe le haut-parleur", tags = listOf("haut parleur")),
 
+        // 💬 Réponses automatiques
+        cmd("auto_reply", CommandCategory.MESSAGES, "Réponds à ma place à Crépin sur {app}", apps = listOf("WhatsApp"), messagingOnly = true, tags = listOf("automatique", "repondre", "discuter")),
+        cmd("auto_reply", CommandCategory.MESSAGES, "Réponds à tout le monde à ma place", tags = listOf("automatique", "repondre")),
+        cmd("auto_reply", CommandCategory.MESSAGES, "Arrête les réponses automatiques", tags = listOf("automatique", "repondre")),
+        cmd("auto_reply", CommandCategory.MESSAGES, "À qui réponds-tu à ma place ?", tags = listOf("automatique", "repondre")),
+        cmd("auto_reply", CommandCategory.MESSAGES, "Oublie la conversation avec Crépin", tags = listOf("oublier", "effacer", "automatique")),
+
         // 🔎 Recherche
         cmd("run_task", CommandCategory.SEARCH, "Cherche Crépin dans {app}", apps = listOf("WhatsApp"), messagingOnly = true),
         cmd("run_task", CommandCategory.SEARCH, "Recherche [texte] sur {app}", apps = listOf("YouTube")),

@@ -59,6 +59,8 @@ sealed class JarvisAction {
     ) : JarvisAction()
     data class SetToggle(val setting: String, val on: Boolean) : JarvisAction()
     data class ShowCommands(val filter: String) : JarvisAction()
+    /** mode : "on", "off" ou "status" — réponses automatiques aux messages entrants (voir JarvisNotificationListener). */
+    data class AutoReply(val mode: String, val contact: String, val app: String) : JarvisAction()
 }
 
 /** Prochaine action décidée par le cerveau pour piloter l'écran (boucle adaptative de TaskRunner). */
@@ -219,6 +221,68 @@ object BackendClient {
         }
     }
 
+    data class AutoReplyResult(val reply: String, val skip: Boolean, val reason: String, val remember: String)
+
+    private fun historyJson(history: List<Triple<Boolean, String, Long>>): JSONArray {
+        val msgs = JSONArray()
+        history.forEach { (mine, text, ts) -> msgs.put(JSONObject().put("fromMe", mine).put("text", text).put("ts", ts)) }
+        return msgs
+    }
+
+    /**
+     * Demande au cerveau la réponse que l'utilisateur aurait écrite. [history] = (écrit par moi ?, texte, horodatage),
+     * [summary] = ce que Jarvis sait déjà de cette conversation (échanges plus anciens, détails retenus).
+     */
+    fun autoReply(
+        contact: String,
+        app: String,
+        history: List<Triple<Boolean, String, Long>>,
+        summary: String,
+        memory: JSONObject,
+        extras: JSONObject? = null
+    ): AutoReplyResult? {
+        val body = JSONObject(memory.toString())
+            .put("contact", contact)
+            .put("app", app)
+            .put("history", historyJson(history))
+            .put("summary", summary)
+            .put("nowMs", System.currentTimeMillis())
+        copyInto(body, extras)
+        val request = requestBuilder("$BASE_URL/reply")
+            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        client.newCall(request).execute().use { response ->
+            val json = runCatching { JSONObject(response.body?.string() ?: "") }.getOrNull() ?: return null
+            if (!response.isSuccessful) return null
+            return AutoReplyResult(
+                json.optString("reply"), json.optBoolean("skip", false),
+                json.optString("reason"), json.optString("remember")
+            )
+        }
+    }
+
+    /** Condense les vieux échanges + l'ancien résumé en un nouveau résumé de la conversation. */
+    fun summarizeConversation(
+        contact: String,
+        previous: String,
+        older: List<Triple<Boolean, String, Long>>,
+        extras: JSONObject? = null
+    ): String? {
+        val body = JSONObject()
+            .put("contact", contact)
+            .put("summary", previous)
+            .put("messages", historyJson(older))
+        copyInto(body, extras)
+        val request = requestBuilder("$BASE_URL/summarize")
+            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        client.newCall(request).execute().use { response ->
+            val json = runCatching { JSONObject(response.body?.string() ?: "") }.getOrNull() ?: return null
+            if (!response.isSuccessful) return null
+            return json.optString("summary").takeIf { it.isNotBlank() }
+        }
+    }
+
     private fun parseAction(name: String, args: JSONObject): JarvisAction = when (name) {
         "speak" -> JarvisAction.Speak(args.optString("text", "..."))
         "open_app" -> JarvisAction.OpenApp(args.optString("app_name"))
@@ -282,6 +346,9 @@ object BackendClient {
             args.optString("state").lowercase() in listOf("on", "true", "allume", "active", "1")
         )
         "show_commands" -> JarvisAction.ShowCommands(args.optString("filter"))
+        "auto_reply" -> JarvisAction.AutoReply(
+            args.optString("mode", "on").lowercase(), args.optString("contact"), args.optString("app")
+        )
         else -> JarvisAction.Speak("Action inconnue : $name.")
     }
 }
