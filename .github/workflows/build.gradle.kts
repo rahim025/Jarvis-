@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -18,7 +20,7 @@ android {
         // Mets ça dans local.properties (jamais dans le code en dur / git) :
         // BACKEND_URL=https://jarvis-43io.onrender.com
         // APP_SHARED_SECRET=le_meme_secret_que_sur_render
-        val localProps = java.util.Properties()
+        val localProps = Properties()
         val localFile = rootProject.file("local.properties")
         if (localFile.exists()) {
             localProps.load(localFile.inputStream())
@@ -54,9 +56,24 @@ dependencies {
 
     // Réseau (appels API Groq / Gemini)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Stockage chiffré des clés API saisies dans l'app
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
 
     // Coroutines pour l'async
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // Caméra (CameraX) pour capturer le flux vidéo de la caméra avant
+    implementation("androidx.camera:camera-core:1.3.4")
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+
+    // Rend le service "LifecycleOwner" (requis par CameraX pour attacher la caméra) —
+    // implémenté manuellement via LifecycleRegistry, plus fiable que lifecycle-service.
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+
+    // Suivi de la main (MediaPipe Hand Landmarker) : détecte la position des doigts en temps réel
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
 }
