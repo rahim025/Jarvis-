@@ -4,6 +4,8 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Bitmap
 import android.graphics.Path
+import android.graphics.Rect
+import com.jarvis.app.ai.JarvisMemory
 import android.os.Build
 import android.util.Base64
 import java.io.ByteArrayOutputStream
@@ -11,6 +13,21 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+
+/** Un élément visible à l'écran, tel que Jarvis le « voit » (texte ou description, rôle, état). */
+data class UiElement(
+    val node: AccessibilityNodeInfo,
+    val text: String,
+    val hint: String,
+    val viewId: String,
+    val clickable: Boolean,
+    val editable: Boolean,
+    val checkable: Boolean,
+    val checked: Boolean,
+    val bounds: Rect
+) {
+    val normText: String get() = JarvisMemory.normalize(text)
+}
 
 /**
  * Le cœur du "contrôle avancé" : ce service tourne en arrière-plan une fois
@@ -121,21 +138,110 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     /** Cherche un élément visible à l'écran dont le texte contient [label] et clique dessus. */
     fun clickByLabel(label: String): Boolean {
-        val root = rootInActiveWindow ?: return false
-        val node = findNodeByText(root, label) ?: return false
-        return node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        val el = findElement(label, editable = false) ?: return false
+        return clickElement(el)
     }
 
-    private fun findNodeByText(node: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {
-        if (node.text?.contains(text, ignoreCase = true) == true ||
-            node.contentDescription?.contains(text, ignoreCase = true) == true) {
-            return node
+    // ── Briques utilisées par TaskRunner (tâches en plusieurs étapes avec vérification) ──
+
+    /** Nom du paquet de l'application actuellement au premier plan (vide si inconnu). */
+    fun currentPackage(): String = rootInActiveWindow?.packageName?.toString().orEmpty()
+
+    /** Liste à plat des éléments visibles (texte / description / champs / cases), dans l'ordre de l'écran. */
+    fun snapshot(maxElements: Int = 120): List<UiElement> {
+        val root = rootInActiveWindow ?: return emptyList()
+        val out = ArrayList<UiElement>()
+        fun walk(n: AccessibilityNodeInfo) {
+            if (out.size >= maxElements || !n.isVisibleToUser) return
+            val t = n.text?.toString()?.trim().orEmpty()
+            val d = n.contentDescription?.toString()?.trim().orEmpty()
+            val label = if (t.isNotEmpty()) t else d
+            if (label.isNotEmpty() || n.isEditable || n.isCheckable) {
+                val r = Rect()
+                n.getBoundsInScreen(r)
+                out.add(
+                    UiElement(
+                        node = n,
+                        text = label.take(150),
+                        hint = n.hintText?.toString().orEmpty(),
+                        viewId = n.viewIdResourceName.orEmpty(),
+                        clickable = n.isClickable,
+                        editable = n.isEditable,
+                        checkable = n.isCheckable,
+                        checked = n.isChecked,
+                        bounds = r
+                    )
+                )
+            }
+            for (i in 0 until n.childCount) {
+                val c = n.getChild(i) ?: continue
+                walk(c)
+            }
         }
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            findNodeByText(child, text)?.let { return it }
+        walk(root)
+        return out
+    }
+
+    /** Empreinte de l'écran : change dès que quelque chose d'affiché change (sert à vérifier qu'une action a eu un effet). */
+    fun screenSignature(): Int {
+        val els = snapshot(80)
+        return (currentPackage() + "|" + els.joinToString("|") { it.text + it.checked }).hashCode()
+    }
+
+    /** Trouve le meilleur élément pour [label] (égalité > début > contient), insensible aux accents et à la casse. */
+    fun findElement(
+        label: String,
+        editable: Boolean? = null,
+        elements: List<UiElement> = snapshot(200)
+    ): UiElement? {
+        val wanted = JarvisMemory.normalize(label)
+        if (wanted.isBlank()) return null
+        var best: UiElement? = null
+        var bestScore = 0
+        for (e in elements) {
+            if (editable != null && e.editable != editable) continue
+            val t = e.normText
+            val score = when {
+                t.isEmpty() -> 0
+                t == wanted -> 100
+                t.startsWith(wanted) -> 80
+                t.contains(wanted) -> 60
+                else -> 0
+            }
+            if (score > bestScore) { bestScore = score; best = e }
         }
-        return null
+        return best
+    }
+
+    /** Clique sur l'élément ; si lui-même n'est pas cliquable, remonte à un parent cliquable, puis tape au centre en dernier recours. */
+    fun clickElement(e: UiElement): Boolean {
+        var n: AccessibilityNodeInfo? = e.node
+        var depth = 0
+        while (n != null && depth < 6) {
+            if (n.isClickable && n.isEnabled && n.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+            n = n.parent
+            depth++
+        }
+        if (!e.bounds.isEmpty) {
+            tapAt(e.bounds.exactCenterX(), e.bounds.exactCenterY())
+            return true
+        }
+        return false
+    }
+
+    /** Met le focus sur un champ et y écrit [text] (remplace le contenu). */
+    fun setText(e: UiElement, text: String): Boolean {
+        e.node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        e.node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        val args = android.os.Bundle()
+        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        return e.node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+    }
+
+    /** Touche « Entrée » du clavier sur un champ (valider une recherche). Android 11+. */
+    fun pressEnter(e: UiElement): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+        return e.node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
     }
 
     /** Tape du texte dans le champ actuellement focalisé. */

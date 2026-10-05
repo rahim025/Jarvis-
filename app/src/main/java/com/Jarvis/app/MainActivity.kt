@@ -95,6 +95,7 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun onStopTap() {
             runOnUiThread {
+                com.jarvis.app.ai.TaskRunner.cancel()
                 voiceManager.stopSpeaking()
                 conversation.stop()
             }
