@@ -156,7 +156,8 @@ class MainActivity : AppCompatActivity() {
             "Ce que Jarvis sait de moi",
             "Autoriser les réglages (luminosité)",
             "Clés API & fournisseurs",
-            "Effacer toute la mémoire"
+            "Effacer toute la mémoire",
+            "Conversations & réponses automatiques"
         )
         AlertDialog.Builder(this)
             .setTitle("Jarvis")
@@ -171,6 +172,7 @@ class MainActivity : AppCompatActivity() {
                     )
                     5 -> ApiKeysDialog.showList(this) { msg -> showMessage(msg) }
                     6 -> confirmClearMemory()
+                    7 -> startActivity(Intent(this, ConversationsActivity::class.java))
                 }
             }
             .setNegativeButton("Fermer", null)
