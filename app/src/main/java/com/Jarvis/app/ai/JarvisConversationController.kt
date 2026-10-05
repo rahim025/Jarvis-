@@ -121,7 +121,8 @@ class JarvisConversationController(
             val memory = JarvisMemory.get(context)
             var failed = false
             // Le cerveau reçoit la question + la mémoire utile (faits, derniers échanges, vieux souvenirs).
-            val actions = withContext(Dispatchers.IO) {
+            // 0 token : les commandes simples sont comprises localement, sans appeler l'IA.
+            val actions = LocalCommands.parse(text) ?: withContext(Dispatchers.IO) {
                 runCatching {
                     BackendClient.decideActions(
                         text,
