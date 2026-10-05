@@ -75,5 +75,5 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 
     // Suivi de la main (MediaPipe Hand Landmarker) : détecte la position des doigts en temps réel
-    implementation("com.google.mediapipe:tasks-vision:latest.release")
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
 }
