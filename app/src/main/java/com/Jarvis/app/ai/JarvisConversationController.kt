@@ -6,6 +6,7 @@ import android.os.Looper
 import com.jarvis.app.voice.VoiceManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
@@ -30,6 +31,9 @@ class JarvisConversationController(
 ) {
     var conversationActive = false
         private set
+
+    /** Tâches d'écran lancées en arrière-plan : elles continuent pendant que Jarvis écoute la commande suivante. */
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val stopPhrases = listOf(
         "c'est bon pour le moment",
@@ -130,6 +134,32 @@ class JarvisConversationController(
                     listOf<JarvisAction>(JarvisAction.Speak("Erreur réseau : ${it.message}"))
                 }
             }
+            val longTask = actions.any { CommandExecutor.isLongTask(it) }
+
+            if (longTask && !failed) {
+                // Tâche d'écran longue : on exécute tout de suite ce qui est rapide (alarme, volume...),
+                // la tâche d'écran part en arrière-plan, et Jarvis reste à l'écoute pour la suite.
+                val quick = actions.filter { !CommandExecutor.isScreenBound(it) }
+                val screen = actions.filter { CommandExecutor.isScreenBound(it) }
+                val quickReply = if (quick.isEmpty()) "" else CommandExecutor.executeAll(context, quick)
+                val ack = (quickReply.takeIf { it.isNotBlank() && it != "C'est fait." }?.plus(" ") ?: "") +
+                    "Je m'en occupe."
+                onStatus("Jarvis : $ack")
+                onAvatarState("speaking")
+                voiceManager.speak(ack)
+
+                backgroundScope.launch {
+                    val result = CommandExecutor.executeAll(context, screen)
+                    runCatching { memory.addTurn(text, "$quickReply $result".trim()) }
+                    withContext(Dispatchers.Main) {
+                        onStatus("Jarvis : $result")
+                        onAvatarState("speaking")
+                        voiceManager.speak(result)
+                    }
+                }
+                return@launch
+            }
+
             val reply = CommandExecutor.executeAll(context, actions)
             // Mémoire d'éléphant : chaque échange réussi est gardé pour toujours.
             if (!failed) {

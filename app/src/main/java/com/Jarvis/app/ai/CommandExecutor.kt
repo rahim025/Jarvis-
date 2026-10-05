@@ -21,6 +21,11 @@ import android.view.KeyEvent
 import androidx.core.content.ContextCompat
 import com.jarvis.app.JarvisAccessibilityService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -33,16 +38,54 @@ import kotlinx.coroutines.withContext
  */
 object CommandExecutor {
 
-    /** Exécute toutes les actions dans l'ordre et assemble les réponses en une phrase. */
-    suspend fun executeAll(context: Context, actions: List<JarvisAction>): String {
-        val replies = mutableListOf<String>()
-        for (action in actions) {
-            val reply = runCatching { execute(context, action) }
-                .getOrElse { "Je n'ai pas pu terminer cette action." }
-            if (reply.isNotBlank()) replies.add(reply)
-        }
-        return replies.joinToString(" ").ifBlank { "C'est fait." }
+    /**
+     * Un seul écran, donc une seule tâche « écran » à la fois : les suivantes attendent leur tour
+     * (file FIFO), même si elles viennent de commandes vocales différentes.
+     */
+    private val screenLock = Mutex()
+
+    /** Actions qui prennent la main sur l'écran / l'appli au premier plan : elles ne peuvent pas se chevaucher. */
+    fun isScreenBound(a: JarvisAction): Boolean = when (a) {
+        is JarvisAction.OpenApp, is JarvisAction.SendSms, is JarvisAction.CallContact,
+        is JarvisAction.WhatsAppCall, JarvisAction.Redial, JarvisAction.EndCall,
+        is JarvisAction.ClickOnScreen, is JarvisAction.TypeText,
+        JarvisAction.GoHome, JarvisAction.GoBack, JarvisAction.CloseApp, is JarvisAction.Scroll,
+        is JarvisAction.PlayMusic, is JarvisAction.OpenUrl, is JarvisAction.Navigate,
+        is JarvisAction.DescribeScreen, is JarvisAction.RunTask, is JarvisAction.SetToggle,
+        is JarvisAction.ShowCommands -> true
+        else -> false
     }
+
+    /** Tâches qui peuvent durer plusieurs secondes (pilotage d'écran en plusieurs étapes). */
+    fun isLongTask(a: JarvisAction): Boolean = a is JarvisAction.RunTask || a is JarvisAction.SetToggle
+
+    /**
+     * Exécute les actions de la commande :
+     *  - les actions indépendantes (alarme, minuteur, lampe, volume, mémoire...) partent EN PARALLÈLE ;
+     *  - les actions d'écran s'enchaînent dans l'ordre, à la suite des autres tâches d'écran en cours.
+     * Les réponses sont rassemblées dans l'ordre d'origine.
+     */
+    suspend fun executeAll(context: Context, actions: List<JarvisAction>): String = coroutineScope {
+        val replies = arrayOfNulls<String>(actions.size)
+
+        val parallel = actions.withIndex().filter { !isScreenBound(it.value) }.map { (i, a) ->
+            async(Dispatchers.Default) { replies[i] = safeExecute(context, a) }
+        }
+        val screenChain = async(Dispatchers.Default) {
+            val screenActions = actions.withIndex().filter { isScreenBound(it.value) }
+            if (screenActions.isNotEmpty()) {
+                screenLock.withLock {
+                    for ((i, a) in screenActions) replies[i] = safeExecute(context, a)
+                }
+            }
+        }
+        (parallel + screenChain).awaitAll()
+
+        replies.filterNotNull().filter { it.isNotBlank() }.joinToString(" ").ifBlank { "C'est fait." }
+    }
+
+    private suspend fun safeExecute(context: Context, action: JarvisAction): String =
+        runCatching { execute(context, action) }.getOrElse { "Je n'ai pas pu terminer cette action." }
 
     suspend fun execute(context: Context, action: JarvisAction): String {
         return when (action) {
