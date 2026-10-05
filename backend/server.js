@@ -128,6 +128,9 @@ const CLIENT_TOOLS = [
   tool('show_commands', "Affiche à l'écran la liste des commandes disponibles, regroupées par catégories, quand l'utilisateur demande les commandes, ce que tu sais faire, ou « les commandes pour WhatsApp »", {
     filter: "application ou thème à filtrer, ex: WhatsApp, système, appels (vide = toutes les commandes)",
   }, []),
+  tool('keep_conversation', "L'utilisateur a une discussion WhatsApp / Messenger OUVERTE à l'écran et demande à Jarvis de garder la conversation avec cette personne, de continuer la discussion ou de lui répondre à sa place (« garde la conversation avec lui », « discute avec elle à ma place », « continue cette discussion », « réponds-lui »). Jarvis lit l'écran, retient la discussion et répond désormais à sa place. À utiliser quand l'utilisateur dit « lui / elle / cette personne / cette discussion » SANS nommer de contact ; s'il nomme un contact sans être dans sa discussion, utilise auto_reply.", {
+    contact: "nom du contact seulement si l'utilisateur le dit ; sinon vide (Jarvis le lit à l'écran)",
+  }, []),
   tool('auto_reply', "Active, coupe ou résume les RÉPONSES AUTOMATIQUES : Jarvis répond à la place de l'utilisateur, comme s'il écrivait lui-même, aux messages WhatsApp / Messenger / Facebook de certains contacts (ex: « réponds à ma place à Crépin », « discute avec Maman sur WhatsApp », « arrête les réponses automatiques », « pour qui réponds-tu ? »). N'utilise PAS run_task pour ça.", {
     mode: "on (activer), off (arrêter), status (dire pour qui c'est actif) ou forget (effacer ce que Jarvis retient de la conversation avec ce contact)",
     contact: "nom du contact, ou « tout le monde » ; vide pour tout arrêter ou pour status",
@@ -645,6 +648,77 @@ app.post('/summarize', checkSecret, async (req, res) => {
   try {
     const message = await callLLM([{ role: 'system', content: system }, { role: 'user', content: user }], llm, null);
     res.json({ summary: stripMarkdown(String(message.content || '')).trim().slice(0, 2000) });
+  } catch (err) {
+    console.error(err);
+    if (err.userMessage) return res.status(502).json({ error: err.userMessage });
+    res.status(500).json({ error: 'Erreur serveur', detail: err.message });
+  }
+});
+
+// Lecture d'une discussion affichée à l'écran : contact, groupe ou pas, messages (moi / lui), petit résumé.
+app.post('/read-chat', checkSecret, async (req, res) => {
+  const elements = Array.isArray(req.body.elements) ? req.body.elements.slice(0, 150) : [];
+  const imageBase64 = typeof req.body.imageBase64 === 'string' ? req.body.imageBase64 : '';
+  const appName = String(req.body.app || 'messagerie');
+  if (!elements.length && !imageBase64) return res.status(400).json({ error: 'Rien à lire.' });
+
+  const instruction =
+    `Tu regardes l'écran du téléphone de ${CREATOR_NAME}, avec une discussion ${appName} ouverte (ou pas). ` +
+    "Tu reçois la capture (si disponible) et la liste des textes visibles avec leur position (x, y en pourcentage de l'écran : x petit = gauche, x grand = droite, y petit = haut).\n" +
+    'Réponds UNIQUEMENT par un objet JSON : {"isChat": true|false, "group": true|false, "contact": "nom affiché en haut de la discussion", ' +
+    '"messages": [{"fromMe": true|false, "text": "texte exact"}], "summary": "2 à 4 puces « • » : qui est ce contact pour lui (si ça se voit), sujets en cours, ce qui attend une réponse"}.\n' +
+    "Règles : isChat = false si ce n'est pas une discussion de messagerie ouverte (liste de discussions, autre écran). " +
+    "group = true si c'est une discussion de groupe (plusieurs participants, nom de groupe, noms d'auteurs au-dessus des messages). " +
+    "messages : du plus ancien au plus récent, seulement les bulles visibles ; fromMe = true pour les bulles de l'utilisateur (à droite, souvent colorées), false pour celles du contact (à gauche). " +
+    "Ignore dates, « en ligne », « vu », heures, boutons et champ de saisie. Recopie le texte exactement ; pour une photo, un vocal ou un sticker écris [photo], [vocal] ou [sticker]. N'invente rien.";
+  const listing = `Textes visibles :\n${elements.map((e) => `${String(e.t || '').slice(0, 200)} (x=${e.x}, y=${e.y})`).join('\n')}`;
+
+  try {
+    let raw = '';
+    const geminiKey = geminiKeyFrom(req.body);
+    if (imageBase64 && geminiKey) {
+      const geminiModel = geminiModelFrom(req.body);
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: `${instruction}\n\n${listing}` },
+              { inline_data: { mime_type: req.body.mimeType || 'image/jpeg', data: imageBase64 } },
+            ],
+          }],
+          generationConfig: { responseMimeType: 'application/json' },
+        }),
+      });
+      const data = await response.json();
+      raw = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join(' ');
+      if (!raw) console.error('read-chat Gemini', response.status, data.error?.message);
+    }
+    if (!raw) {
+      // Sans capture (ou si Gemini échoue) : on lit uniquement le texte et les positions.
+      let llm;
+      try { llm = resolveLLM(req.body); } catch (e) { return res.status(400).json({ error: e.userMessage || e.message }); }
+      if (!llm.apiKey) return res.status(400).json({ error: "Aucune clé API : ajoute-la dans l'app (menu ⚙ > Clés API & fournisseurs)." });
+      const message = await callLLM(
+        [{ role: 'system', content: instruction }, { role: 'user', content: listing }], llm, null
+      );
+      raw = message.content || '';
+    }
+    const out = parseJsonObject(raw);
+    if (!out) return res.status(502).json({ error: 'Lecture de la discussion illisible.' });
+    const messages = (Array.isArray(out.messages) ? out.messages : [])
+      .map((m) => ({ fromMe: m && m.fromMe === true, text: String((m && m.text) || '').trim().slice(0, 500) }))
+      .filter((m) => m.text)
+      .slice(-40);
+    res.json({
+      isChat: out.isChat === true && messages.length > 0,
+      group: out.group === true,
+      contact: out.contact ? String(out.contact).trim().slice(0, 80) : '',
+      messages,
+      summary: out.summary ? String(out.summary).trim().slice(0, 800) : '',
+    });
   } catch (err) {
     console.error(err);
     if (err.userMessage) return res.status(502).json({ error: err.userMessage });
