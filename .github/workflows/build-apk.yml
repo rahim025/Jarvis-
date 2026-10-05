@@ -12,6 +12,9 @@ jobs:
       - name: Checkout du code
         uses: actions/checkout@v4
 
+      - name: Vérifier que la liste « Affiche les commandes » est à jour
+        run: node scripts/check-commands.js
+
       - name: Installer JDK 17
         uses: actions/setup-java@v4
         with:
