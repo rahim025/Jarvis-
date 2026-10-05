@@ -43,6 +43,12 @@
             </intent-filter>
         </activity>
 
+        <!-- Liste des commandes disponibles (« Affiche les commandes »), chaque commande est cliquable. -->
+        <activity
+            android:name=".CommandsActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <!-- Service d'accessibilité : c'est lui qui permet à Jarvis de "voir" l'écran
              (lire les vues affichées) et d'agir dessus (cliquer, taper du texte, etc.).
              L'utilisateur doit l'activer manuellement dans
