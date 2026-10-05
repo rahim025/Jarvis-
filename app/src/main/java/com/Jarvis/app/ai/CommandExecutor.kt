@@ -222,6 +222,14 @@ object CommandExecutor {
 
             JarvisAction.DeviceStatus -> deviceStatus(context)
 
+            // ── Tâches en plusieurs étapes, réglages, aide ────────────────────
+
+            is JarvisAction.RunTask -> TaskRunner.run(context, action)
+
+            is JarvisAction.SetToggle -> TaskRunner.setToggle(context, action.setting, action.on)
+
+            is JarvisAction.ShowCommands -> CommandsLauncher.show(context, action.filter)
+
             is JarvisAction.DescribeScreen -> {
                 val service = JarvisAccessibilityService.instance
                 if (service == null) {

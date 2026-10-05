@@ -5,6 +5,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -44,7 +45,32 @@ sealed class JarvisAction {
     data class Navigate(val destination: String) : JarvisAction()
     object DeviceStatus : JarvisAction()
     data class DescribeScreen(val question: String) : JarvisAction()
+
+    // ── Tâches en plusieurs étapes, réglages, aide ──
+    /** kind : "send_message", "search" ou "other" (voir TaskRunner). */
+    data class RunTask(
+        val kind: String,
+        val app: String,
+        val goal: String,
+        val contact: String,
+        val message: String,
+        val query: String,
+        val submit: Boolean
+    ) : JarvisAction()
+    data class SetToggle(val setting: String, val on: Boolean) : JarvisAction()
+    data class ShowCommands(val filter: String) : JarvisAction()
 }
+
+/** Prochaine action décidée par le cerveau pour piloter l'écran (boucle adaptative de TaskRunner). */
+data class AgentDecision(
+    val action: String,
+    val index: Int?,
+    val text: String,
+    val direction: String,
+    val app: String,
+    val reason: String,
+    val say: String
+)
 
 /**
  * Parle uniquement au backend Render — plus jamais directement à Groq ou Gemini.
@@ -157,6 +183,42 @@ object BackendClient {
         }
     }
 
+    /**
+     * Demande au cerveau la PROCHAINE action pour atteindre [goal], vu l'écran actuel et ce qui a
+     * déjà été tenté. C'est ce qui permet de s'adapter quand l'interface change.
+     */
+    fun agentStep(
+        goal: String,
+        pkg: String,
+        elements: JSONArray,
+        history: List<String>,
+        extras: JSONObject? = null
+    ): AgentDecision? {
+        val body = JSONObject().apply {
+            put("goal", goal)
+            put("package", pkg)
+            put("elements", elements)
+            put("history", JSONArray(history))
+        }
+        copyInto(body, extras)
+        val request = requestBuilder("$BASE_URL/agent")
+            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        client.newCall(request).execute().use { response ->
+            val json = runCatching { JSONObject(response.body?.string() ?: "") }.getOrNull() ?: return null
+            if (!response.isSuccessful) return null
+            return AgentDecision(
+                action = json.optString("action"),
+                index = if (json.has("index") && !json.isNull("index")) json.optString("index").toIntOrNull() else null,
+                text = json.optString("text"),
+                direction = json.optString("direction"),
+                app = json.optString("app"),
+                reason = json.optString("reason"),
+                say = json.optString("say")
+            )
+        }
+    }
+
     private fun parseAction(name: String, args: JSONObject): JarvisAction = when (name) {
         "speak" -> JarvisAction.Speak(args.optString("text", "..."))
         "open_app" -> JarvisAction.OpenApp(args.optString("app_name"))
@@ -206,6 +268,20 @@ object BackendClient {
         "navigate" -> JarvisAction.Navigate(args.optString("destination"))
         "device_status" -> JarvisAction.DeviceStatus
         "describe_screen" -> JarvisAction.DescribeScreen(args.optString("question", "Décris ce qui est affiché."))
+        "run_task" -> JarvisAction.RunTask(
+            kind = args.optString("kind", "other").lowercase(),
+            app = args.optString("app"),
+            goal = args.optString("goal"),
+            contact = args.optString("contact"),
+            message = args.optString("message"),
+            query = args.optString("query"),
+            submit = args.optString("submit").lowercase() in listOf("true", "oui", "1", "yes")
+        )
+        "set_toggle" -> JarvisAction.SetToggle(
+            args.optString("setting").lowercase(),
+            args.optString("state").lowercase() in listOf("on", "true", "allume", "active", "1")
+        )
+        "show_commands" -> JarvisAction.ShowCommands(args.optString("filter"))
         else -> JarvisAction.Speak("Action inconnue : $name.")
     }
 }

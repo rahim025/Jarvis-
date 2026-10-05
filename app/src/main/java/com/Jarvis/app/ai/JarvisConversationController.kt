@@ -52,6 +52,11 @@ class JarvisConversationController(
 
     /** À appeler quand l'utilisateur active Jarvis (appui sur le micro, ou sur la bulle flottante). */
     fun activate() {
+        // Un appui sur le micro / la bulle pendant une tâche en plusieurs étapes l'interrompt.
+        if (TaskRunner.running) {
+            TaskRunner.cancel()
+            return
+        }
         if (conversationActive) {
             startListeningRound()
             return
@@ -84,6 +89,19 @@ class JarvisConversationController(
 
     fun onVoiceResult(text: String) {
         onStatus("Toi : $text")
+        // Toucher une commande dans l'écran « Commandes » l'exécute via ce contrôleur, comme à la voix.
+        CommandBus.runner = { cmd -> Handler(Looper.getMainLooper()).post { onVoiceResult(cmd) } }
+
+        // « Affiche les commandes » / « Cherche les commandes pour WhatsApp » : réponse immédiate, sans réseau.
+        val commandsFilter = CommandCatalog.parseShowRequest(text)
+        if (commandsFilter != null) {
+            val reply = runCatching { CommandsLauncher.show(context, commandsFilter) }
+                .getOrElse { "Je n'arrive pas à afficher les commandes." }
+            onStatus("Jarvis : $reply")
+            onAvatarState("speaking")
+            voiceManager.speak(reply)
+            return
+        }
 
         if (isStopPhrase(text)) {
             conversationActive = false
