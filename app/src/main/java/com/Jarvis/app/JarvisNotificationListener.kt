@@ -160,7 +160,8 @@ class JarvisNotificationListener : NotificationListenerService() {
         val bundle = Bundle().also { b -> inputs.forEach { b.putCharSequence(it.resultKey, text) } }
         val intent = Intent()
         RemoteInput.addResultsToIntent(inputs, intent, bundle)
-        return runCatching { reply.actionIntent.send(this, 0, intent) }.isSuccess
+        val pending = reply.actionIntent ?: return false
+        return runCatching { pending.send(this, 0, intent) }.isSuccess
     }
 
     private fun underLimit(convKey: String): Boolean {
