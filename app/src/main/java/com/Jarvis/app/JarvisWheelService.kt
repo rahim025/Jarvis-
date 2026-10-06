@@ -19,6 +19,7 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.PointF
 import android.graphics.RectF
+import android.graphics.drawable.GradientDrawable
 import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.Handler
@@ -28,8 +29,10 @@ import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.ViewOutlineProvider
 import android.view.View
 import android.view.WindowManager
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.camera.core.CameraSelector
@@ -41,6 +44,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
@@ -82,6 +86,17 @@ class JarvisWheelService : Service(), LifecycleOwner {
         private const val ACQUIRE_FRAMES = 12    // images stables pour fixer le point mort
         private const val LOST_FRAMES = 4
         private const val WATCHDOG_MS = 400L
+        private const val PREVIEW_INTERVAL_MS = 60L
+
+        // Liaisons entre les 21 points de la main (squelette dessiné dans l'aperçu).
+        private val HAND_LINKS = arrayOf(
+            intArrayOf(0, 1), intArrayOf(1, 2), intArrayOf(2, 3), intArrayOf(3, 4),
+            intArrayOf(0, 5), intArrayOf(5, 6), intArrayOf(6, 7), intArrayOf(7, 8),
+            intArrayOf(5, 9), intArrayOf(9, 10), intArrayOf(10, 11), intArrayOf(11, 12),
+            intArrayOf(9, 13), intArrayOf(13, 14), intArrayOf(14, 15), intArrayOf(15, 16),
+            intArrayOf(13, 17), intArrayOf(17, 18), intArrayOf(18, 19), intArrayOf(19, 20),
+            intArrayOf(0, 17)
+        )
     }
 
     private lateinit var windowManager: WindowManager
@@ -95,6 +110,18 @@ class JarvisWheelService : Service(), LifecycleOwner {
     private val injector = SteeringInjector()
 
     @Volatile private var frameAspect = 0.75f
+
+    // ── Aperçu caméra (fenêtre en haut à gauche) ──
+    private var previewView: ImageView? = null
+    private var previewLp: WindowManager.LayoutParams? = null
+    @Volatile private var lastPreviewFrame: Bitmap? = null
+    @Volatile private var lastPreviewFrameTime = 0L
+    private var lastPreviewDraw = 0L
+    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(200, 255, 255, 255); style = Paint.Style.STROKE }
+    private val jointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#4CA8E8") }
+    private val wheelLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val labelBgPaint = Paint().apply { color = Color.argb(170, 0, 0, 0) }
+    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; typeface = android.graphics.Typeface.DEFAULT_BOLD }
 
     // ── État du volant ──
     private var acquired = false
@@ -125,6 +152,7 @@ class JarvisWheelService : Service(), LifecycleOwner {
         cameraExecutor = Executors.newSingleThreadExecutor()
         startForegroundWithNotification("Volant actif — tiens ton volant imaginaire avec les deux mains.")
         setupWheelOverlay()
+        setupPreview()
         (getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
             .registerDisplayListener(displayListener, mainHandler)
         setupHandLandmarker()
@@ -152,6 +180,7 @@ class JarvisWheelService : Service(), LifecycleOwner {
         cameraExecutor.shutdown()
         handLandmarker?.close()
         wheelView?.let { runCatching { windowManager.removeView(it) } }
+        previewView?.let { runCatching { windowManager.removeView(it) } }
         calibView?.let { runCatching { windowManager.removeView(it) } }
     }
 
@@ -238,6 +267,82 @@ class JarvisWheelService : Service(), LifecycleOwner {
         runCatching { windowManager.addView(v, lp) }.onSuccess { wheelView = v }
     }
 
+    // ── Aperçu caméra : ce que Jarvis voit de tes mains ─────────────────────────
+
+    private fun setupPreview() {
+        val iv = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = GradientDrawable().apply {
+                setColor(Color.BLACK)
+                cornerRadius = dp(14).toFloat()
+                setStroke(dp(2), Color.parseColor("#4CA8E8"))
+            }
+            outlineProvider = ViewOutlineProvider.BACKGROUND
+            clipToOutline = true
+            alpha = 0.92f
+        }
+        val lp = WindowManager.LayoutParams(
+            dp(170), dp(128), overlayType(),
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = dp(8)
+            y = dp(10)
+        }
+        runCatching { windowManager.addView(iv, lp) }.onSuccess { previewView = iv; previewLp = lp }
+    }
+
+    /** Dessine sur l'image : squelette des mains, ligne du volant entre les deux paumes, et l'état. */
+    private fun drawPreview(frame: Bitmap?, hands: List<List<NormalizedLandmark>>, label: String, ok: Boolean) {
+        val view = previewView ?: return
+        if (frame == null) return
+        val now = SystemClock.uptimeMillis()
+        if (now - lastPreviewDraw < PREVIEW_INTERVAL_MS) return
+        lastPreviewDraw = now
+
+        val out = frame.copy(Bitmap.Config.ARGB_8888, true) ?: return
+        val canvas = Canvas(out)
+        val w = out.width.toFloat()
+        val h = out.height.toFloat()
+
+        // La fenêtre épouse le format de l'image (portrait ou paysage).
+        previewLp?.let { lp ->
+            val ph = (dp(170) * h / w).toInt()
+            if (abs(lp.height - ph) > dp(2)) {
+                lp.height = ph
+                runCatching { windowManager.updateViewLayout(view, lp) }
+            }
+        }
+
+        linePaint.strokeWidth = w * 0.012f
+        for (hand in hands) {
+            for (link in HAND_LINKS) {
+                val a = hand[link[0]]
+                val b = hand[link[1]]
+                canvas.drawLine(a.x() * w, a.y() * h, b.x() * w, b.y() * h, linePaint)
+            }
+            for (i in hand.indices) {
+                canvas.drawCircle(hand[i].x() * w, hand[i].y() * h, w * 0.013f, jointPaint)
+            }
+        }
+        if (hands.size >= 2) {
+            val palms = hands.map { hd -> PointF((hd[0].x() + hd[9].x()) / 2f * w, (hd[0].y() + hd[9].y()) / 2f * h) }
+                .sortedBy { it.x }
+            wheelLinePaint.color = if (ok) Color.parseColor("#22C55E") else Color.parseColor("#F59E0B")
+            wheelLinePaint.strokeWidth = w * 0.03f
+            canvas.drawLine(palms[0].x, palms[0].y, palms[1].x, palms[1].y, wheelLinePaint)
+            for (pt in palms) canvas.drawCircle(pt.x, pt.y, w * 0.035f, wheelLinePaint.apply { style = Paint.Style.FILL })
+            wheelLinePaint.style = Paint.Style.STROKE
+        }
+
+        labelPaint.textSize = w * 0.075f
+        val barH = labelPaint.textSize * 1.7f
+        canvas.drawRect(0f, h - barH, w, h, labelBgPaint)
+        canvas.drawText(label, w * 0.04f, h - barH * 0.3f, labelPaint)
+        view.setImageBitmap(out)
+    }
+
     // ── Modèle de main + caméra ─────────────────────────────────────────────────
 
     private fun setupHandLandmarker() {
@@ -281,6 +386,13 @@ class JarvisWheelService : Service(), LifecycleOwner {
             }
             val bmp = Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, m, true)
             frameAspect = bmp.width.toFloat() / bmp.height.toFloat()
+            val nowMs = SystemClock.uptimeMillis()
+            if (nowMs - lastPreviewFrameTime >= PREVIEW_INTERVAL_MS) {
+                val pw = 240
+                val ph = (pw * bmp.height / bmp.width).coerceAtLeast(1)
+                lastPreviewFrame = Bitmap.createScaledBitmap(bmp, pw, ph, true)
+                lastPreviewFrameTime = nowMs
+            }
             handLandmarker?.detectAsync(BitmapImageBuilder(bmp).build(), SystemClock.uptimeMillis())
         } catch (_: Exception) {
         } finally {
@@ -292,7 +404,12 @@ class JarvisWheelService : Service(), LifecycleOwner {
 
     private fun handleResult(result: HandLandmarkerResult) {
         val hands = result.landmarks()
-        if (hands.size < 2) { onHandsLost(force = false); return }
+        val frame = lastPreviewFrame
+        if (hands.size < 2) {
+            onHandsLost(force = false)
+            drawPreview(frame, hands, if (hands.isEmpty()) "pas de mains" else "montre les 2 mains", false)
+            return
+        }
 
         val aspect = frameAspect
         // Centre de la paume (poignet + base du majeur) de chaque main, de gauche à droite dans l'image.
@@ -301,7 +418,11 @@ class JarvisWheelService : Service(), LifecycleOwner {
         }.sortedBy { it.x }
         val dx = pts[1].x - pts[0].x
         val dy = pts[1].y - pts[0].y
-        if (hypot(dx, dy) < 0.12f) { onHandsLost(force = false); return } // mains trop proches : mesure instable
+        if (hypot(dx, dy) < 0.12f) { // mains trop proches : mesure instable
+            onHandsLost(force = false)
+            drawPreview(frame, hands, "mains trop proches", false)
+            return
+        }
 
         lostFrames = 0
         mainHandler.removeCallbacks(watchdog)
@@ -320,6 +441,7 @@ class JarvisWheelService : Service(), LifecycleOwner {
             }
             showWheel(0f, 0f, true)
             injector.setDesired(0)
+            drawPreview(frame, hands, "point mort ${acquireFrames * 100 / ACQUIRE_FRAMES}%  tiens droit", false)
             return
         }
 
@@ -331,6 +453,9 @@ class JarvisWheelService : Service(), LifecycleOwner {
 
         showWheel(a, steer, true)
         applySteer(steer, SystemClock.uptimeMillis())
+
+        val dir = if (steer < -0.02f) "GAUCHE" else if (steer > 0.02f) "DROITE" else "tout droit"
+        drawPreview(frame, hands, "${a.toInt()}°  $dir ${(abs(steer) * 100).toInt()}%", true)
     }
 
     private fun onHandsLost(force: Boolean) {
