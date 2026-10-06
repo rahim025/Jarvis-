@@ -178,6 +178,8 @@ class MainActivity : AppCompatActivity() {
         else "Activer Jarvis en arrière-plan"
         val handLabel = if (JarvisHandTrackingService.isRunning) "Désactiver le curseur main"
         else "Activer le curseur main (caméra)"
+        val wheelLabel = if (JarvisWheelService.isRunning) "Désactiver le volant virtuel"
+        else "Activer le volant virtuel (BB Racing, caméra)"
         val items = arrayOf(
             "Activer le contrôle d'écran",
             bgLabel,
@@ -187,7 +189,9 @@ class MainActivity : AppCompatActivity() {
             "Autoriser les réglages (luminosité)",
             "Clés API & fournisseurs",
             "Effacer toute la mémoire",
-            "Conversations & réponses automatiques"
+            "Conversations & réponses automatiques",
+            wheelLabel,
+            "Régler les boutons de direction du jeu (volant)"
         )
         AlertDialog.Builder(this)
             .setTitle("Jarvis")
@@ -204,6 +208,8 @@ class MainActivity : AppCompatActivity() {
                     6 -> ApiKeysDialog.showList(this) { msg -> showMessage(msg) }
                     7 -> confirmClearMemory()
                     8 -> startActivity(Intent(this, ConversationsActivity::class.java))
+                    9 -> toggleWheel()
+                    10 -> calibrateWheel()
                 }
             }
             .setNegativeButton("Fermer", null)
@@ -291,8 +297,49 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             return
         }
+        stopService(Intent(this, JarvisWheelService::class.java)) // une seule caméra à la fois
         ContextCompat.startForegroundService(this, Intent(this, JarvisHandTrackingService::class.java))
         showMessage("Curseur main actif. Choisis le geste de clic et la sensibilité dans le menu ⚙ > Réglages du curseur main.")
+    }
+
+
+    // ── Volant virtuel (BB Racing) ──────────────────────────────────────────────
+
+    private fun toggleWheel() {
+        if (JarvisWheelService.isRunning) {
+            stopService(Intent(this, JarvisWheelService::class.java))
+            showMessage("Volant virtuel désactivé.")
+        } else {
+            startWheel(calibrate = false)
+        }
+    }
+
+    private fun calibrateWheel() = startWheel(calibrate = true)
+
+    private fun startWheel(calibrate: Boolean) {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED) {
+            showMessage("Autorise l'accès à la caméra, puis réessaie depuis le menu ⚙.")
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), 2)
+            return
+        }
+        if (!Settings.canDrawOverlays(this)) {
+            showMessage("Autorise l'affichage par-dessus les autres apps, puis réessaie.")
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            return
+        }
+        if (JarvisAccessibilityService.instance == null) {
+            showMessage("Active d'abord le contrôle d'écran (menu ⚙ > Activer le contrôle d'écran).")
+            return
+        }
+        stopService(Intent(this, JarvisHandTrackingService::class.java)) // une seule caméra à la fois
+        val i = Intent(this, JarvisWheelService::class.java)
+        if (calibrate) i.action = JarvisWheelService.ACTION_CALIBRATE
+        ContextCompat.startForegroundService(this, i)
+        showMessage(
+            if (calibrate) "Réglage lancé : ouvre BB Racing, tu as 10 secondes."
+            else "Volant actif. Ouvre BB Racing, pose le téléphone et tiens ton volant imaginaire avec les deux mains."
+        )
     }
 
     /**

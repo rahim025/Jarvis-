@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+    <!-- Nécessaire pour que "ouvre WhatsApp" (ou n'importe quelle autre app) fonctionne :
+         depuis Android 11, une app ne voit plus la liste complète des apps installées
+         par défaut. Comme Jarvis n'est pas distribué sur le Play Store (sideload/APK
+         debug), cette permission est utilisable sans restriction. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Jarvis"
+        android:theme="@style/Theme.AppCompat.DayNight">
+
+        <activity
+            android:name=".MainActivity"
+            android:theme="@style/Theme.AppCompat.DayNight.NoActionBar"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Liste des commandes disponibles (« Affiche les commandes »), chaque commande est cliquable. -->
+        <activity
+            android:name=".CommandsActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- Écran « Conversations » : réponses automatiques + mémoire de chaque contact. -->
+        <activity
+            android:name=".ConversationsActivity"
+            android:exported="false" />
+
+        <!-- Service d'accessibilité : c'est lui qui permet à Jarvis de "voir" l'écran
+             (lire les vues affichées) et d'agir dessus (cliquer, taper du texte, etc.).
+             L'utilisateur doit l'activer manuellement dans
+             Paramètres > Accessibilité > Apps installées > Jarvis. -->
+        <service
+            android:name=".JarvisAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- Service en premier plan (notification permanente) qui affiche la bulle
+             flottante permettant de parler à Jarvis depuis n'importe quelle app. -->
+        <service
+            android:name=".JarvisForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- Service en premier plan qui suit ta main via la caméra avant et affiche
+             un point noir qui reproduit tes mouvements de doigt à l'écran (pincement = clic/glisser). -->
+        <service
+            android:name=".JarvisHandTrackingService"
+            android:exported="false"
+            android:foregroundServiceType="camera" />
+
+        <!-- Volant virtuel : suit tes deux mains via la caméra avant et appuie sur les boutons
+             de direction du jeu (BB Racing) selon l'angle de ton « volant imaginaire ». -->
+        <service
+            android:name=".JarvisWheelService"
+            android:exported="false"
+            android:foregroundServiceType="camera" />
+
+        <!-- Lit les notifications de WhatsApp / Messenger pour répondre à ta place aux contacts autorisés.
+             À activer dans Paramètres > Notifications > Accès aux notifications > Jarvis. -->
+        <service
+            android:name=".JarvisNotificationListener"
+            android:label="Jarvis"
+            android:exported="false"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Détecte les appels entrants pour déclencher le "portier" vocal de Jarvis :
+             avant de décrocher, il te demande d'abord si tu es disponible. -->
+        <receiver
+            android:name=".IncomingCallReceiver"
+            android:exported="true"
+            android:permission="android.permission.READ_PHONE_STATE">
+            <intent-filter>
+                <action android:name="android.intent.action.PHONE_STATE" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+</manifest>
