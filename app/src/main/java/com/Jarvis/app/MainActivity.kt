@@ -182,6 +182,7 @@ class MainActivity : AppCompatActivity() {
             "Activer le contrôle d'écran",
             bgLabel,
             handLabel,
+            "Réglages du curseur main (geste, sensibilité, aperçu)",
             "Ce que Jarvis sait de moi",
             "Autoriser les réglages (luminosité)",
             "Clés API & fournisseurs",
@@ -195,13 +196,14 @@ class MainActivity : AppCompatActivity() {
                     0 -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     1 -> toggleBackground()
                     2 -> toggleHandCursor()
-                    3 -> showMemorySummary()
-                    4 -> startActivity(
+                    3 -> HandSettingsDialog.show(this)
+                    4 -> showMemorySummary()
+                    5 -> startActivity(
                         Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName"))
                     )
-                    5 -> ApiKeysDialog.showList(this) { msg -> showMessage(msg) }
-                    6 -> confirmClearMemory()
-                    7 -> startActivity(Intent(this, ConversationsActivity::class.java))
+                    6 -> ApiKeysDialog.showList(this) { msg -> showMessage(msg) }
+                    7 -> confirmClearMemory()
+                    8 -> startActivity(Intent(this, ConversationsActivity::class.java))
                 }
             }
             .setNegativeButton("Fermer", null)
@@ -290,7 +292,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         ContextCompat.startForegroundService(this, Intent(this, JarvisHandTrackingService::class.java))
-        showMessage("Curseur main actif : pince pouce-index pour cliquer.")
+        showMessage("Curseur main actif. Choisis le geste de clic et la sensibilité dans le menu ⚙ > Réglages du curseur main.")
     }
 
     /**
