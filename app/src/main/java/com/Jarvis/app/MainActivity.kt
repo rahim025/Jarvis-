@@ -183,48 +183,47 @@ class MainActivity : AppCompatActivity() {
     // ── Menu ⚙ ──────────────────────────────────────────────────────────────────
 
     private fun showMenu() {
-        val bgLabel = if (JarvisForegroundService.isRunning) "Désactiver Jarvis en arrière-plan"
-        else "Activer Jarvis en arrière-plan"
-        val handLabel = if (JarvisHandTrackingService.isRunning) "Désactiver le curseur main"
-        else "Activer le curseur main (caméra)"
-        val wheelLabel = if (JarvisWheelService.isRunning) "Désactiver le volant virtuel"
-        else "Activer le volant virtuel (BB Racing, caméra)"
-        val items = arrayOf(
-            "Activer le contrôle d'écran",
-            bgLabel,
-            handLabel,
-            "Réglages du curseur main (geste, sensibilité, aperçu)",
-            "Ce que Jarvis sait de moi",
-            "Autoriser les réglages (luminosité)",
-            "Clés API & fournisseurs",
-            "Effacer toute la mémoire",
-            "Conversations & réponses automatiques",
-            wheelLabel,
-            "Régler les boutons de direction du jeu (volant)",
-            "Importer sur GitHub (envoyer / mettre à jour des fichiers)"
-        )
-        AlertDialog.Builder(this)
-            .setTitle("Jarvis")
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                    1 -> toggleBackground()
-                    2 -> toggleHandCursor()
-                    3 -> HandSettingsDialog.show(this)
-                    4 -> showMemorySummary()
-                    5 -> startActivity(
-                        Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName"))
-                    )
-                    6 -> ApiKeysDialog.showList(this) { msg -> showMessage(msg) }
-                    7 -> confirmClearMemory()
-                    8 -> startActivity(Intent(this, ConversationsActivity::class.java))
-                    9 -> toggleWheel()
-                    10 -> calibrateWheel()
-                    11 -> GithubDialog.show(this) { githubPicker.launch(arrayOf("*/*")) }
+        JarvisMenu.show(this, listOf(
+            JarvisMenu.Section("système", listOf(
+                JarvisMenu.Entry(android.R.drawable.ic_menu_view, "Contrôle d'écran") {
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                },
+                JarvisMenu.Entry(android.R.drawable.ic_menu_compass, "Jarvis en arrière-plan",
+                    state = JarvisForegroundService.isRunning) { toggleBackground() },
+                JarvisMenu.Entry(android.R.drawable.ic_menu_manage, "Autoriser les réglages", "luminosité") {
+                    startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName")))
                 }
-            }
-            .setNegativeButton("Fermer", null)
-            .show()
+            )),
+            JarvisMenu.Section("caméra et jeu", listOf(
+                JarvisMenu.Entry(android.R.drawable.ic_menu_camera, "Curseur main", "caméra",
+                    state = JarvisHandTrackingService.isRunning) { toggleHandCursor() },
+                JarvisMenu.Entry(android.R.drawable.ic_menu_preferences, "Réglages du curseur", "geste, sensibilité, aperçu") {
+                    HandSettingsDialog.show(this)
+                },
+                JarvisMenu.Entry(android.R.drawable.ic_menu_rotate, "Volant virtuel", "BB Racing, caméra",
+                    state = JarvisWheelService.isRunning) { toggleWheel() },
+                JarvisMenu.Entry(android.R.drawable.ic_menu_mylocation, "Boutons de direction du jeu") { calibrateWheel() }
+            )),
+            JarvisMenu.Section("mémoire et IA", listOf(
+                JarvisMenu.Entry(android.R.drawable.ic_menu_info_details, "Ce que Jarvis sait de moi") { showMemorySummary() },
+                JarvisMenu.Entry(android.R.drawable.ic_lock_lock, "Clés API et fournisseurs") {
+                    ApiKeysDialog.showList(this) { msg -> showMessage(msg) }
+                },
+                JarvisMenu.Entry(android.R.drawable.ic_menu_send, "Conversations", "réponses automatiques") {
+                    startActivity(Intent(this, ConversationsActivity::class.java))
+                }
+            )),
+            JarvisMenu.Section("outils", listOf(
+                JarvisMenu.Entry(android.R.drawable.ic_menu_upload, "Importer sur GitHub", "envoyer et mettre à jour") {
+                    GithubDialog.show(this) { githubPicker.launch(arrayOf("*/*")) }
+                }
+            )),
+            JarvisMenu.Section("zone sensible", listOf(
+                JarvisMenu.Entry(android.R.drawable.ic_menu_delete, "Effacer toute la mémoire", danger = true) {
+                    confirmClearMemory()
+                }
+            ))
+        ))
     }
 
     private fun showMemorySummary() {
