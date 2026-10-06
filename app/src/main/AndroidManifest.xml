@@ -86,6 +86,13 @@
             android:exported="false"
             android:foregroundServiceType="camera" />
 
+        <!-- Volant virtuel : suit tes deux mains via la caméra avant, affiche l'aperçu caméra + le volant
+             par-dessus le jeu et appuie sur les boutons de direction (BB Racing). -->
+        <service
+            android:name=".JarvisWheelService"
+            android:exported="false"
+            android:foregroundServiceType="camera" />
+
         <!-- Lit les notifications de WhatsApp / Messenger pour répondre à ta place aux contacts autorisés.
              À activer dans Paramètres > Notifications > Accès aux notifications > Jarvis. -->
         <service
