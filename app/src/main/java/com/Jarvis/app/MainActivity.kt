@@ -8,7 +8,11 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.provider.Settings
+import androidx.activity.result.contract.ActivityResultContracts
+import com.jarvis.app.ai.ApiKeyStore
+import java.util.zip.ZipInputStream
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -28,6 +32,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var voiceManager: VoiceManager
     private lateinit var conversation: JarvisConversationController
+
+    // ── Import GitHub : sélecteur de fichiers ──
+    private val githubPicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) uploadToGithub(uris)
+    }
 
     private var pageReady = false
     private var lastState = "idle"
@@ -191,7 +200,8 @@ class MainActivity : AppCompatActivity() {
             "Effacer toute la mémoire",
             "Conversations & réponses automatiques",
             wheelLabel,
-            "Régler les boutons de direction du jeu (volant)"
+            "Régler les boutons de direction du jeu (volant)",
+            "Importer sur GitHub (envoyer / mettre à jour des fichiers)"
         )
         AlertDialog.Builder(this)
             .setTitle("Jarvis")
@@ -210,6 +220,7 @@ class MainActivity : AppCompatActivity() {
                     8 -> startActivity(Intent(this, ConversationsActivity::class.java))
                     9 -> toggleWheel()
                     10 -> calibrateWheel()
+                    11 -> GithubDialog.show(this) { githubPicker.launch(arrayOf("*/*")) }
                 }
             }
             .setNegativeButton("Fermer", null)
@@ -315,6 +326,51 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun calibrateWheel() = startWheel(calibrate = true)
+
+    // ── Import GitHub ───────────────────────────────────────────────────────────
+
+    private fun displayName(uri: Uri): String =
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+            if (it.moveToFirst()) it.getString(0) else null
+        } ?: (uri.lastPathSegment ?: "fichier")
+
+    private fun uploadToGithub(uris: List<Uri>) {
+        val token = ApiKeyStore.getKey(this, "github")
+        if (token.isBlank()) { showMessage("Jeton GitHub manquant : rouvre « Importer sur GitHub »."); return }
+        showMessage("Envoi vers GitHub…")
+        Thread {
+            val items = mutableListOf<GithubSync.Item>()
+            for (uri in uris) {
+                val name = displayName(uri)
+                runCatching {
+                    if (name.endsWith(".zip", ignoreCase = true)) {
+                        // Un zip de projet : on envoie chaque fichier, sans le dossier racine « Projet-main/ ».
+                        ZipInputStream(contentResolver.openInputStream(uri)!!).use { z ->
+                            var e = z.nextEntry
+                            while (e != null) {
+                                if (!e.isDirectory) {
+                                    var path = e.name.trimStart('/')
+                                    val first = path.substringBefore('/', "")
+                                    if (first.isNotEmpty() && first.endsWith("-main")) path = path.substringAfter('/')
+                                    if (path.isNotBlank() && !path.startsWith(".git/")) items += GithubSync.Item(path, z.readBytes())
+                                }
+                                e = z.nextEntry
+                            }
+                        }
+                    } else {
+                        items += GithubSync.Item(name, contentResolver.openInputStream(uri)!!.use { it.readBytes() })
+                    }
+                }
+            }
+            val r = GithubSync.upload(token, GithubSync.repo(this), GithubSync.branch(this),
+                GithubSync.folder(this), GithubSync.message(this), items) { /* progression */ }
+            runOnUiThread {
+                val txt = "${r.ok}/${items.size} fichier(s) envoyé(s) sur ${GithubSync.repo(this)}." +
+                    if (r.errors.isEmpty()) "" else "\n\nErreurs :\n" + r.errors.take(5).joinToString("\n")
+                AlertDialog.Builder(this).setTitle("GitHub").setMessage(txt).setPositiveButton("OK", null).show()
+            }
+        }.start()
+    }
 
     private fun startWheel(calibrate: Boolean) {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA)

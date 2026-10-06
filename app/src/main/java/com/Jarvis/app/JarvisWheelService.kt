@@ -157,6 +157,7 @@ class JarvisWheelService : Service(), LifecycleOwner {
             .registerDisplayListener(displayListener, mainHandler)
         setupHandLandmarker()
         startCamera()
+        Toast.makeText(this, "Volant actif : l'aperçu caméra s'affiche en haut de l'écran.", Toast.LENGTH_SHORT).show()
         lifecycleRegistry.currentState = Lifecycle.State.STARTED
         if (JarvisAccessibilityService.instance == null) {
             updateNotification("Active le contrôle d'écran (Accessibilité) pour que le volant agisse.")
@@ -282,7 +283,7 @@ class JarvisWheelService : Service(), LifecycleOwner {
             alpha = 0.92f
         }
         val lp = WindowManager.LayoutParams(
-            dp(170), dp(128), overlayType(),
+            dp(220), dp(165), overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
@@ -290,7 +291,9 @@ class JarvisWheelService : Service(), LifecycleOwner {
             x = dp(8)
             y = dp(10)
         }
-        runCatching { windowManager.addView(iv, lp) }.onSuccess { previewView = iv; previewLp = lp }
+        runCatching { windowManager.addView(iv, lp) }
+            .onSuccess { previewView = iv; previewLp = lp }
+            .onFailure { updateNotification("Aperçu impossible : autorise l'affichage par-dessus les autres apps.") }
     }
 
     /** Dessine sur l'image : squelette des mains, ligne du volant entre les deux paumes, et l'état. */
@@ -308,7 +311,7 @@ class JarvisWheelService : Service(), LifecycleOwner {
 
         // La fenêtre épouse le format de l'image (portrait ou paysage).
         previewLp?.let { lp ->
-            val ph = (dp(170) * h / w).toInt()
+            val ph = (dp(220) * h / w).toInt()
             if (abs(lp.height - ph) > dp(2)) {
                 lp.height = ph
                 runCatching { windowManager.updateViewLayout(view, lp) }
