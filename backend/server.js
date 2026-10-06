@@ -121,6 +121,10 @@ const CLIENT_TOOLS = [
     query: "pour search : le texte à chercher (optionnel sinon)",
     submit: "true pour valider la recherche avec Entrée (YouTube, Google, Play Store…), false pour une simple recherche de contact ou de discussion",
   }, ['kind', 'app', 'goal']),
+  tool('play_game', "Jarvis JOUE à un jeu du téléphone À LA PLACE de l'utilisateur, en regardant l'écran et en touchant / glissant lui-même (ex: « joue à Ludo pour moi », « joue à 2048 et fais le plus de points possible », « continue ma partie d'échecs »). À utiliser pour jouer à un JEU vidéo ; pour mettre de la musique, utilise play_music.", {
+    game: "nom du jeu / de l'application, ex: Ludo King",
+    goal: "objectif ou consigne de l'utilisateur en une phrase, ex: gagner la partie, faire le plus de points (vide si non précisé)",
+  }, ['game']),
   tool('set_toggle', "Active ou désactive le Wi-Fi ou le Bluetooth du téléphone", {
     setting: "wifi ou bluetooth",
     state: "on ou off",
@@ -293,6 +297,7 @@ function buildSystemPrompt({ facts, relevant, now, cloudContext }) {
       '- Quand une demande enchaîne plusieurs actions DANS une application (ouvrir, chercher, écrire, envoyer…), appelle UNE SEULE fois run_task ' +
       '(send_message pour envoyer un message, search pour chercher, other sinon) : n\'enchaîne jamais open_app, click_on_screen et type_text toi-même, ' +
       'car run_task attend et vérifie chaque étape. Pour le Wi-Fi ou le Bluetooth, utilise set_toggle. Pour « affiche les commandes », utilise show_commands.\n' +
+      '- Quand l\'utilisateur te demande de JOUER à un jeu (« joue à Ludo », « joue à ma place à… »), appelle play_game. Pour de la musique, play_music.\n' +
       '- Pour appeler : « appelle X » = call_contact (appel normal), « appelle X sur WhatsApp » = whatsapp_call. ' +
       'Si l\'utilisateur désigne quelqu\'un par un surnom (maman, mon amour...), garde exactement ses mots dans contact ; ' +
       'l\'application retrouvera le bon contact.\n' +
@@ -726,8 +731,9 @@ app.post('/read-chat', checkSecret, async (req, res) => {
   }
 });
 
-// Vision SANS Gemini : on utilise le « cerveau » choisi dans l'app (OpenAI, OpenRouter, Groq…).
-// 1) capture + texte lu à l'écran (si le modèle sait lire les images), 2) sinon texte lu à l'écran seul.
+// Vision SANS Gemini (ou si Gemini est indisponible) : on utilise le « cerveau » choisi dans l'app
+// (OpenAI, OpenRouter, Groq…). 1) capture + texte lu à l'écran (si le modèle lit les images),
+// 2) sinon texte lu à l'écran seul.
 async function visionWithBrain(req, res, { prompt, imageBase64, mimeType, screenText }) {
   let llm;
   try {
@@ -797,38 +803,172 @@ app.post('/vision', checkSecret, async (req, res) => {
       screenText.slice(0, 3000)
     : '';
 
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            {
-              text:
-                "Tu es Jarvis. Voici une capture de l'écran du téléphone de l'utilisateur. Regarde-la comme le ferait " +
-                "l'utilisateur : repère l'application ouverte, le contenu, les messages, les boutons, les erreurs, les couleurs. " +
-                'Réponds en français, naturellement, en 4 phrases maximum, sans markdown, à sa demande : ' + prompt + screenPart,
-            },
-            { inline_data: { mime_type: mimeType || 'image/png', data: imageBase64 } },
-          ],
-        }],
-      }),
-    });
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`;
+  const geminiBody = JSON.stringify({
+    contents: [{
+      parts: [
+        {
+          text:
+            "Tu es Jarvis. Voici une capture de l'écran du téléphone de l'utilisateur. Regarde-la comme le ferait " +
+            "l'utilisateur : repère l'application ouverte, le contenu, les messages, les boutons, les erreurs, les couleurs. " +
+            'Réponds en français, naturellement, en 4 phrases maximum, sans markdown, à sa demande : ' + prompt + screenPart,
+        },
+        { inline_data: { mime_type: mimeType || 'image/png', data: imageBase64 } },
+      ],
+    }],
+  });
 
-    const data = await response.json();
-    const raw = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join(' ');
-    const text = stripMarkdown(raw);
-    if (!text) {
-      const detail = data.error?.message || `réponse vide (HTTP ${response.status})`;
-      console.error('Vision', geminiModel, response.status, detail);
-      return res.status(502).json({ error: `Gemini (${response.status}) : ${detail}` });
+  let lastStatus = 0;
+  let lastDetail = '';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: geminiBody,
+      });
+      const data = await response.json().catch(() => ({}));
+      const raw = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join(' ');
+      const text = stripMarkdown(raw);
+      if (text) return res.json({ type: 'speak', text });
+      lastStatus = response.status;
+      lastDetail = data.error?.message || `réponse vide (HTTP ${response.status})`;
+      console.error('Vision', geminiModel, lastStatus, lastDetail);
+      // Surcharge ou quota passager : on réessaie une fois. Autre erreur (clé, modèle) : inutile d'insister.
+      if (![429, 500, 502, 503, 504].includes(lastStatus)) break;
+    } catch (err) {
+      lastDetail = err.message;
+      console.error(err);
     }
-    res.json({ type: 'speak', text });
+    if (attempt === 0) await new Promise((r) => setTimeout(r, 1500));
+  }
+
+  // Gemini indisponible : on bascule sur le cerveau choisi dans l'app (OpenAI, OpenRouter, Groq…) s'il a une clé.
+  try {
+    const llm = resolveLLM(req.body);
+    if (llm.apiKey) return visionWithBrain(req, res, { prompt, imageBase64, mimeType, screenText });
+  } catch (e) { /* URL du fournisseur refusée : on retombe sur l'erreur Gemini ci-dessous */ }
+  return res.status(502).json({ error: `Gemini (${lastStatus || 'réseau'}) : ${lastDetail}` });
+});
+
+// ── Jeux : Jarvis joue à ta place (capture -> gestes) ───────────────────────────────
+
+// Une réponse « vision » brute : Gemini (2 essais si surcharge), sinon le cerveau de l'app (OpenAI, OpenRouter…).
+async function visionRaw(body, promptText, imageBase64, mimeType, { json = false } = {}) {
+  let lastDetail = '';
+  const geminiKey = geminiKeyFrom(body);
+  if (geminiKey) {
+    const model = geminiModelFrom(body);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
+    const payload = JSON.stringify({
+      contents: [{ parts: [{ text: promptText }, { inline_data: { mime_type: mimeType || 'image/jpeg', data: imageBase64 } }] }],
+      ...(json ? { generationConfig: { responseMimeType: 'application/json' } } : {}),
+    });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
+        const data = await response.json().catch(() => ({}));
+        const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join(' ').trim();
+        if (text) return text;
+        lastDetail = `Gemini (${response.status}) : ${data.error?.message || 'réponse vide'}`;
+        console.error('Game vision', model, response.status, lastDetail);
+        if (![429, 500, 502, 503, 504].includes(response.status)) break;
+      } catch (err) {
+        lastDetail = err.message;
+        console.error(err);
+      }
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 1200));
+    }
+  }
+  const llm = resolveLLM(body);
+  if (!llm.apiKey) {
+    throw new Error(lastDetail || 'Aucune clé IA : ajoute Gemini ou un fournisseur dans le menu ⚙ > Clés API & fournisseurs.');
+  }
+  const m = await callLLM([{
+    role: 'user',
+    content: [
+      { type: 'text', text: promptText },
+      { type: 'image_url', image_url: { url: `data:${mimeType || 'image/jpeg'};base64,${imageBase64}` } },
+    ],
+  }], llm, null);
+  if (m.content) return m.content;
+  throw new Error(lastDetail || 'réponse vide du cerveau');
+}
+
+function extractJSON(text) {
+  if (typeof text !== 'string') return null;
+  const m = text.replace(/```json|```/gi, '').match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try { return JSON.parse(m[0]); } catch (e) { return null; }
+}
+
+// On ne fait jamais confiance à la sortie du modèle : types, bornes et tailles sont revérifiés ici.
+function cleanGameStep(raw) {
+  const num = (v, d) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
+  const clamp = (v, lo, hi, d) => Math.min(hi, Math.max(lo, num(v, d)));
+  const TYPES = ['tap', 'swipe', 'hold', 'wait', 'back'];
+  const actions = (Array.isArray(raw && raw.actions) ? raw.actions : [])
+    .filter((a) => a && TYPES.includes(a.type))
+    .slice(0, 6)
+    .map((a) => ({
+      type: a.type,
+      x: clamp(a.x, 0, 1000, 500),
+      y: clamp(a.y, 0, 1000, 500),
+      x2: clamp(a.x2, 0, 1000, 500),
+      y2: clamp(a.y2, 0, 1000, 500),
+      ms: Math.round(clamp(a.ms, 0, 5000, 0)),
+      repeat: Math.round(clamp(a.repeat, 1, 30, 1)),
+    }));
+  const status = ['playing', 'done', 'stuck'].includes(raw && raw.status) ? raw.status : 'playing';
+  return {
+    actions,
+    status,
+    say: stripMarkdown(String((raw && raw.say) || '')).slice(0, 300),
+    note: String((raw && raw.note) || '').slice(0, 200),
+    wait_ms: Math.round(clamp(raw && raw.wait_ms, 300, 4000, 900)),
+  };
+}
+
+app.post('/game-step', checkSecret, async (req, res) => {
+  const { game, goal, imageBase64, mimeType, history, screenText } = req.body;
+  if (!imageBase64) return res.status(400).json({ error: 'Le champ "imageBase64" est requis.' });
+
+  const past = (Array.isArray(history) ? history : []).slice(-8).map((h) => String(h).slice(0, 120));
+  const screenPart = typeof screenText === 'string' && screenText.trim()
+    ? "\n\nTexte lu à l'écran par le téléphone (peut être vide dans un jeu) :\n" + screenText.slice(0, 800)
+    : '';
+  const prompt =
+    "Tu es Jarvis et tu JOUES à un jeu sur le téléphone de l'utilisateur, à sa place. Voici une capture de l'écran actuel.\n" +
+    `Jeu : ${String(game || '').slice(0, 100) || "celui qui est ouvert à l'écran"}\n` +
+    `Objectif : ${String(goal || '').slice(0, 200) || 'joue normalement, avance et essaie de gagner'}\n\n` +
+    "Coordonnées : x et y entre 0 et 1000 sur l'image (x=0 gauche, x=1000 droite, y=0 haut, y=1000 bas).\n" +
+    'Gestes possibles :\n' +
+    '- {"type":"tap","x":..,"y":..,"repeat":1} (repeat jusqu\'à 30 pour taper vite au même endroit, jeux « idle »)\n' +
+    '- {"type":"swipe","x":..,"y":..,"x2":..,"y2":..,"ms":300} (glisser, ms entre 100 et 1000)\n' +
+    '- {"type":"hold","x":..,"y":..,"ms":800} (appui long)\n' +
+    '- {"type":"wait","ms":1500} (attendre : chargement, animation, tour de l\'adversaire)\n' +
+    '- {"type":"back"} (retour Android)\n\n' +
+    'Règles :\n' +
+    "- 5 gestes maximum par réponse. Si l'écran va changer après un geste (menu, nouveau niveau), n'en mets qu'un seul.\n" +
+    "- Ne dépense JAMAIS d'argent : aucun bouton d'achat, de prix, d'abonnement, de pack, d'offre ni « supprimer les pubs ».\n" +
+    "- Publicités : n'appuie jamais sur la pub, « Installer » ou « Ouvrir ». Attends, puis ferme avec la croix ou « Passer » si elle est claire ; sinon status \"stuck\".\n" +
+    "- Ne touche ni aux chats avec d'autres joueurs, ni aux connexions / comptes / mots de passe : status \"stuck\".\n" +
+    "- Ignore la petite bulle ronde de Jarvis qui flotte à l'écran.\n" +
+    '- Si rien ne se passe encore (chargement, tour adverse) : un seul geste wait.\n' +
+    "- Si la partie est finie ou l'objectif atteint : status \"done\". Si tu es bloqué, ou si un choix revient à l'utilisateur : status \"stuck\", avec une phrase claire dans \"say\".\n" +
+    "- Si l'écran n'a pas changé après tes derniers gestes, essaie autre chose.\n\n" +
+    `Tes derniers gestes : ${past.length ? past.join(' ; ') : 'aucun (début de partie)'}${screenPart}\n\n` +
+    'Réponds UNIQUEMENT avec ce JSON, sans texte autour :\n' +
+    '{"note":"ce que tu vois, en une phrase","actions":[{"type":"tap","x":500,"y":800}],"status":"playing","say":"phrase courte pour l\'utilisateur, seulement si done ou stuck","wait_ms":900}';
+
+  try {
+    const raw = await visionRaw(req.body, prompt, imageBase64, mimeType, { json: true });
+    const parsed = extractJSON(raw);
+    if (!parsed) return res.status(502).json({ error: "Le cerveau n'a pas renvoyé de gestes lisibles." });
+    res.json(cleanGameStep(parsed));
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erreur serveur', detail: err.message });
+    console.error('game-step', err.message);
+    res.status(502).json({ error: err.userMessage || err.message });
   }
 });
 
