@@ -7,7 +7,18 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
+import android.os.Handler
+import android.os.Looper
+import android.text.InputType
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
 import android.os.Build
 import android.os.IBinder
 import android.view.Gravity
@@ -34,6 +45,9 @@ class JarvisForegroundService : Service() {
         var isRunning = false
             private set
 
+        /** Action de la notification « Écrire » : ouvre le clavier visuel par-dessus l'app en cours. */
+        const val ACTION_OPEN_TEXT = "com.jarvis.app.OPEN_TEXT"
+
         /** Instance active, utilisée par IncomingCallReceiver pour déclencher le portier
          *  vocal quand le téléphone sonne (rien à faire si le service n'est pas actif :
          *  pas de moteur vocal disponible pour poser la question). */
@@ -56,6 +70,12 @@ class JarvisForegroundService : Service() {
     private var initialTouchY = 0f
     private var isDragging = false
 
+    // Clavier visuel (saisie au lieu de la voix) et carte de réponse écrite, par-dessus les autres apps.
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private var textPanel: View? = null
+    private var replyCard: View? = null
+    private val hideReplyRunnable = Runnable { hideReplyCard() }
+
     override fun onCreate() {
         super.onCreate()
         isRunning = true
@@ -66,6 +86,7 @@ class JarvisForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_OPEN_TEXT) showTextPanel()
         return START_STICKY
     }
 
@@ -79,7 +100,8 @@ class JarvisForegroundService : Service() {
             context = this,
             voiceManager = voiceManager,
             onStatus = { updateNotification(it) },
-            onAvatarState = { state -> setAvatarState(state) }
+            onAvatarState = { state -> setAvatarState(state) },
+            onTextReply = { reply -> showReplyCard(reply) }
         )
     }
 
@@ -210,7 +232,9 @@ class JarvisForegroundService : Service() {
                 }
                 MotionEvent.ACTION_UP -> {
                     if (!isDragging) {
-                        conversation.activate()
+                        // Appui long : clavier visuel. Simple tap : on parle à Jarvis.
+                        if (event.eventTime - event.downTime >= 450) showTextPanel()
+                        else conversation.activate()
                     }
                     true
                 }
@@ -221,28 +245,38 @@ class JarvisForegroundService : Service() {
         windowManager.addView(bubbleView, params)
     }
 
+    private fun buildNotification(text: String): Notification {
+        val openAppIntent = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        val writeIntent = PendingIntent.getService(
+            this, 1,
+            Intent(this, JarvisForegroundService::class.java).setAction(ACTION_OPEN_TEXT),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        return NotificationCompat.Builder(this, "jarvis_background")
+            .setContentTitle("Jarvis")
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentIntent(openAppIntent)
+            .addAction(android.R.drawable.ic_menu_edit, "Écrire", writeIntent)
+            .setOngoing(true)
+            .build()
+    }
+
     private fun startForegroundWithNotification() {
-        val channelId = "jarvis_background"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                channelId, "Jarvis en arrière-plan", NotificationManager.IMPORTANCE_LOW
+                "jarvis_background", "Jarvis en arrière-plan", NotificationManager.IMPORTANCE_LOW
             )
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(channel)
         }
 
-        val openAppIntent = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE
+        val notification = buildNotification(
+            "Actif — tape sur la bulle pour parler, maintiens-la (ou « Écrire ») pour taper."
         )
-
-        val notification: Notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Jarvis")
-            .setContentText("Actif — appuie sur la bulle pour lui parler.")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentIntent(openAppIntent)
-            .setOngoing(true)
-            .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
@@ -252,20 +286,166 @@ class JarvisForegroundService : Service() {
     }
 
     private fun updateNotification(text: String) {
-        val channelId = "jarvis_background"
-        val openAppIntent = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE
-        )
-        val notification: Notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Jarvis")
-            .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentIntent(openAppIntent)
-            .setOngoing(true)
-            .build()
         val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(1, notification)
+        nm.notify(1, buildNotification(text))
+    }
+
+    // ── Clavier visuel + vision, par-dessus l'app en cours ───────────────────────
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    private fun overlayType(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        else
+            @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+
+    private fun panelBackground(radiusDp: Int): GradientDrawable = GradientDrawable().apply {
+        setColor(Color.parseColor("#F2080C18"))
+        cornerRadius = dp(radiusDp).toFloat()
+        setStroke(dp(1), Color.parseColor("#664CA8E8"))
+    }
+
+    /** Barre de saisie en haut de l'écran (le clavier Android s'ouvre en bas, donc rien ne se chevauche). */
+    private fun showTextPanel() {
+        if (textPanel != null) return
+        hideReplyCard()
+        conversation.stop() // on libère le micro : l'utilisateur écrit
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(8), dp(8), dp(8))
+            background = panelBackground(28)
+        }
+
+        val input = EditText(this).apply {
+            hint = "Écris à Jarvis..."
+            setHintTextColor(Color.parseColor("#88FFFFFF"))
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            imeOptions = EditorInfo.IME_ACTION_SEND
+            background = null
+        }
+        row.addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        // 👁 Vision : Jarvis regarde l'écran pour répondre.
+        val eye = TextView(this).apply {
+            text = "\uD83D\uDC41"
+            textSize = 20f
+            gravity = Gravity.CENTER
+            alpha = if (conversation.visionMode) 1f else 0.35f
+        }
+        eye.setOnClickListener {
+            val on = !conversation.visionMode
+            if (on && JarvisAccessibilityService.instance == null) {
+                Toast.makeText(
+                    this, "Active d'abord le contrôle d'écran (paramètres d'accessibilité).", Toast.LENGTH_LONG
+                ).show()
+            } else {
+                conversation.visionMode = on
+                eye.alpha = if (on) 1f else 0.35f
+                Toast.makeText(this, if (on) "Vision activée" else "Vision désactivée", Toast.LENGTH_SHORT).show()
+            }
+        }
+        row.addView(eye, LinearLayout.LayoutParams(dp(44), dp(44)))
+
+        val send = TextView(this).apply {
+            text = "\u27A4"
+            setTextColor(Color.parseColor("#4CA8E8"))
+            textSize = 20f
+            gravity = Gravity.CENTER
+        }
+        row.addView(send, LinearLayout.LayoutParams(dp(44), dp(44)))
+
+        val close = TextView(this).apply {
+            text = "\u2715"
+            setTextColor(Color.parseColor("#99FFFFFF"))
+            textSize = 18f
+            gravity = Gravity.CENTER
+        }
+        row.addView(close, LinearLayout.LayoutParams(dp(40), dp(44)))
+
+        fun submit() {
+            val message = input.text.toString().trim()
+            hideTextPanel()
+            if (message.isNotEmpty()) {
+                // Petit délai : le temps que le clavier se ferme et que l'app en dessous reprenne le focus,
+                // sinon le contrôle d'écran et la capture verraient la barre de saisie au lieu de l'app.
+                uiHandler.postDelayed({ conversation.onTextInput(message) }, 450)
+            }
+        }
+        send.setOnClickListener { submit() }
+        close.setOnClickListener { hideTextPanel() }
+        input.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEND) { submit(); true } else false
+        }
+
+        // Fenêtre focusable (pas de FLAG_NOT_FOCUSABLE) : c'est ce qui permet au clavier de s'ouvrir.
+        val lp = WindowManager.LayoutParams(
+            resources.displayMetrics.widthPixels - dp(24),
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayType(),
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = dp(48)
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+        }
+        windowManager.addView(row, lp)
+        textPanel = row
+
+        input.post {
+            input.requestFocus()
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    private fun hideTextPanel() {
+        val panel = textPanel ?: return
+        textPanel = null
+        runCatching {
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.hideSoftInputFromWindow(panel.windowToken, 0)
+            windowManager.removeView(panel)
+        }
+    }
+
+    /** Réponse écrite (question tapée) : carte en haut de l'écran, non tactile pour ne pas gêner l'app dessous. */
+    private fun showReplyCard(message: String) {
+        hideReplyCard()
+        val card = TextView(this).apply {
+            text = message
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            background = panelBackground(18)
+        }
+        val lp = WindowManager.LayoutParams(
+            resources.displayMetrics.widthPixels - dp(24),
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = dp(48)
+        }
+        runCatching { windowManager.addView(card, lp) }.onSuccess { replyCard = card }
+        uiHandler.postDelayed(hideReplyRunnable, (5000L + message.length * 50L).coerceAtMost(25000L))
+    }
+
+    private fun hideReplyCard() {
+        uiHandler.removeCallbacks(hideReplyRunnable)
+        val card = replyCard ?: return
+        replyCard = null
+        runCatching { windowManager.removeView(card) }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -276,6 +456,8 @@ class JarvisForegroundService : Service() {
         instance = null
         conversation.stop()
         voiceManager.destroy()
+        hideTextPanel()
+        hideReplyCard()
         if (::bubbleView.isInitialized) {
             windowManager.removeView(bubbleView)
         }

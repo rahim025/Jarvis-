@@ -48,6 +48,7 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 pageReady = true
                 js("setJarvisState('$lastState')")
+                if (::conversation.isInitialized) js("setVisionState(${conversation.visionMode})")
                 refreshMemoryBadge()
             }
         }
@@ -101,6 +102,19 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        /** Message tapé au clavier visuel : même traitement que la voix, réponse écrite. */
+        @JavascriptInterface
+        fun onTextSubmit(text: String) {
+            runOnUiThread {
+                if (text.isNotBlank()) conversation.onTextInput(text)
+            }
+        }
+
+        @JavascriptInterface
+        fun onVisionToggle() {
+            runOnUiThread { toggleVision() }
+        }
+
         @JavascriptInterface
         fun openMenu() {
             runOnUiThread { showMenu() }
@@ -133,6 +147,21 @@ class MainActivity : AppCompatActivity() {
             status == "J'écoute..." -> {}
             else -> showMessage(status)
         }
+    }
+
+    /** Active/désactive la vision : Jarvis regarde l'écran pour répondre à tes questions. */
+    private fun toggleVision() {
+        val on = !conversation.visionMode
+        if (on && JarvisAccessibilityService.instance == null) {
+            showMessage("Active d'abord le contrôle d'écran (menu ⚙), puis réessaie.")
+            return
+        }
+        conversation.visionMode = on
+        js("setVisionState($on)")
+        showMessage(
+            if (on) "Vision activée : je regarde ton écran pour répondre. Elle sert surtout avec la bulle, par-dessus une autre app."
+            else "Vision désactivée."
+        )
     }
 
     private fun refreshMemoryBadge() {
