@@ -317,6 +317,43 @@ body.no-orb.state-listening #orb-container { filter: hue-rotate(110deg); }
 body.no-orb.state-thinking #orb-container { filter: hue-rotate(-60deg); animation-duration: 1s; }
 @keyframes orbpulse { 0%,100% { transform: scale(.78); opacity:.8; } 50% { transform: scale(1); opacity:1; } }
 
+/* ── Clavier visuel + vision ─────────────────────────────────────────────── */
+#kb-btn, #eye-btn {
+  position: fixed; bottom: 16px; z-index: 50;
+  width: 42px; height: 42px; border-radius: 50%;
+  border: 1px solid rgba(76,168,232,.3); background: rgba(5,8,22,.5);
+  color: #4ca8e8; font-size: 19px; line-height: 40px; text-align: center;
+  backdrop-filter: blur(8px); cursor: pointer; font-family: inherit;
+}
+#kb-btn { left: 16px; }
+#eye-btn { left: 66px; opacity: .55; }
+#eye-btn.on {
+  opacity: 1; color: var(--green); border-color: rgba(34,197,94,.6);
+  box-shadow: 0 0 16px var(--green-glow);
+}
+#kb-btn:active, #eye-btn:active { transform: scale(.93); }
+#text-bar {
+  display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 70;
+  padding: 10px 12px; gap: 8px; align-items: center;
+  background: rgba(5,8,22,.94); border-top: 1px solid rgba(76,168,232,.3);
+}
+body.kb-open #text-bar { display: flex; }
+body.kb-open #kb-btn, body.kb-open #eye-btn, body.kb-open #settings-gear { display: none; }
+#text-input {
+  flex: 1; min-width: 0; height: 44px; padding: 0 16px; border-radius: 22px;
+  border: 1px solid rgba(76,168,232,.35); background: rgba(255,255,255,.06);
+  color: #fff; font-size: 16px; font-family: inherit; outline: none;
+  -webkit-user-select: text; user-select: text;
+}
+#text-input::placeholder { color: rgba(255,255,255,.35); }
+#text-send, #text-close {
+  width: 44px; height: 44px; border-radius: 50%; flex: none;
+  border: 1px solid rgba(76,168,232,.4); background: rgba(76,168,232,.18);
+  color: #4ca8e8; font-size: 18px; cursor: pointer; font-family: inherit;
+}
+#text-close { background: transparent; color: rgba(255,255,255,.5); }
+body.compact #kb-btn, body.compact #eye-btn, body.compact #text-bar { display: none !important; }
+
 </style>
 </head>
 <body>
@@ -358,6 +395,15 @@ body.no-orb.state-thinking #orb-container { filter: hue-rotate(-60deg); animatio
   </main>
 
   <button id="settings-gear" aria-label="Menu">&#9881;</button>
+  <button id="kb-btn" aria-label="Écrire à JARVIS">&#9000;</button>
+  <button id="eye-btn" aria-label="Vision : JARVIS regarde l'écran">&#128065;</button>
+
+  <div id="text-bar">
+    <input id="text-input" type="text" placeholder="Écris à Jarvis..." enterkeyhint="send"
+           autocomplete="off" autocorrect="on" autocapitalize="sentences" />
+    <button id="text-send" aria-label="Envoyer">&#10148;</button>
+    <button id="text-close" aria-label="Fermer le clavier">&#10005;</button>
+  </div>
 
 <script>
 (function () {
@@ -419,6 +465,35 @@ body.no-orb.state-thinking #orb-container { filter: hue-rotate(-60deg); animatio
     if (bridge()) bridge().openMenu();
   });
   // Sur la bulle (compact) un tap est géré nativement ; ici rien d'autre à faire.
+
+  // ── Clavier visuel + vision ──
+  var textInput = document.getElementById('text-input');
+  var eyeBtn = document.getElementById('eye-btn');
+  function openKb() {
+    document.body.classList.add('kb-open');
+    setTimeout(function () { textInput.focus(); }, 60);
+  }
+  function closeKb() {
+    document.body.classList.remove('kb-open');
+    textInput.blur();
+  }
+  function sendText() {
+    var t = textInput.value.trim();
+    if (!t) return;
+    textInput.value = '';
+    textInput.blur(); // le clavier se range, la réponse reste visible ; la barre reste ouverte
+    if (bridge()) bridge().onTextSubmit(t);
+  }
+  document.getElementById('kb-btn').addEventListener('click', openKb);
+  document.getElementById('text-close').addEventListener('click', closeKb);
+  document.getElementById('text-send').addEventListener('click', sendText);
+  textInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); sendText(); }
+  });
+  eyeBtn.addEventListener('click', function () {
+    if (bridge()) bridge().onVisionToggle();
+  });
+  window.setVisionState = function (on) { eyeBtn.classList.toggle('on', !!on); };
 
   function loadScript(src, ok, fail) {
     var s = document.createElement('script');
