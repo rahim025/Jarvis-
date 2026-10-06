@@ -36,6 +36,50 @@ météo, recherche web (actus, sport, prix), abonnés TikTok, volume, musique (S
 luminosité, alarmes, minuteurs, ouvrir un site, navigation GPS, état du téléphone (batterie/RAM/stockage),
 **vision d'écran** (« qu'est-ce que je regarde ? », Android 11+, via Gemini), plusieurs commandes dans la même phrase.
 
+## Clavier visuel & vision de l'écran
+
+**Écrire au lieu de parler** (Jarvis répond alors par écrit, sans parler) :
+- Dans l'app : bouton ⌨ en bas à gauche → barre de saisie. Entrée ou ➤ pour envoyer.
+- Par-dessus les autres apps (mode bulle) : **maintiens la bulle** appuyée, ou touche « Écrire » dans la notification. Une barre de saisie s'ouvre en haut de l'écran ; la réponse s'affiche dans une carte qui disparaît toute seule.
+- Tout ce que tu peux dire, tu peux le taper (commandes, tâches en plusieurs étapes, mémoire…).
+
+**Vision (Jarvis voit ce que tu vois)** :
+- Bouton 👁 (dans l'app ou dans la barre de saisie de la bulle), ou dis/tape « active la vision » / « désactive la vision ».
+- Vision active : chaque question de conversation est répondue en regardant ton écran (capture + texte lu, via Gemini). Les vraies commandes (ouvrir une app, appeler, minuteur…) marchent comme avant.
+- Nécessite : contrôle d'écran activé (menu ⚙) et Android 11+. **Gemini n'est pas obligatoire** : sans clé Gemini, Jarvis utilise ton cerveau (OpenAI, OpenRouter… avec un modèle qui lit les images, ex. `gpt-4o-mini`) ; si le modèle ne lit pas les images, il se base sur le texte lu à l'écran. **Redéploie le backend** pour cette version. Pour qu'elle serve, utilise la bulle par-dessus l'app que tu regardes (dans l'app Jarvis, elle ne voit que Jarvis).
+
+## Curseur main (caméra)
+
+Menu ⚙ > « Activer le curseur main », puis **« Réglages du curseur main »** (effet immédiat, sans redémarrer) :
+
+- **Aperçu caméra** : une petite fenêtre en haut à droite montre ce que voit la caméra, avec le squelette de ta main, le point suivi (vert, rouge quand tu cliques) et l'état du geste. Le nombre « 0.41/0.22 » = écart des doigts / seuil : tu cliques quand il passe sous le seuil.
+- **Sensibilité du pointeur** (50–300 %) : plus c'est haut, moins ta main a besoin de bouger pour parcourir l'écran.
+- **Stabilité** (lissage) : amortit les tremblements ; les grands mouvements restent rapides.
+- **Seuil de clic** : à baisser si tu cliques sans le vouloir, à monter si le clic ne part pas. Il se règle selon la taille de la main, donc il marche à n'importe quelle distance de la caméra.
+
+Gestes de clic au choix :
+
+| Geste | Points forts | Limites |
+|---|---|---|
+| **Pouce + majeur** | le plus précis : l'index pointe et ne bouge pas pendant le clic | un peu moins évident au début |
+| **Pouce + index** | le plus naturel ; le pointeur suit le dos de la main pour ne pas dériver | un peu moins précis pour viser |
+| **Rester immobile 1 s** | aucun faux clic, aucun geste à faire | plus lent |
+| **Poing fermé** (expérimental) | pratique pour glisser | moins précis pour viser |
+
+Un appui court = tap, un appui long = appui long, un appui avec déplacement = glissé / défilement. Le tap part de l'endroit où le geste a *commencé*.
+
+## Jouer à tes jeux
+
+Dis ou tape « **Joue à Ludo King pour moi** », « joue à 2048 et fais le plus de points possible »…
+Jarvis ouvre le jeu puis boucle : il **regarde l'écran** (capture), le cerveau choisit quelques gestes (tap, glissé, appui long, attente), il les fait, puis re-regarde.
+
+- Nécessite : contrôle d'écran activé, Android 11+, et **« Jarvis en arrière-plan » (la bulle) actif** : c'est ta façon de l'arrêter.
+- **Arrêter** : touche la bulle, ou dis « arrête de jouer ». Garde-fous : 150 tours ou 15 minutes maximum, arrêt si l'écran ne change plus.
+- Adapté aux jeux **au tour par tour, puzzles, cartes, jeux « idle »** (taper vite au même endroit). Chaque tour prend quelques secondes : trop lent pour les jeux d'action en temps réel.
+- Sécurité : il ne touche pas aux achats, aux pubs « Installer », aux chats d'autres joueurs ni aux comptes. S'il hésite, il s'arrête et te le dit.
+- Fonctionne avec Gemini, ou avec ton fournisseur (OpenAI, OpenRouter… modèle qui lit les images). **Redéploie le backend** (nouvelle route `/game-step`).
+- Attention : certains jeux en ligne interdisent l'automatisation dans leurs conditions d'utilisation.
+
 ## Tâches en plusieurs étapes
 
 Dis une phrase naturelle : « Ouvre WhatsApp, cherche Crépin, écris “Salut” et envoie le message ».
