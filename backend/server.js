@@ -726,14 +726,70 @@ app.post('/read-chat', checkSecret, async (req, res) => {
   }
 });
 
-// Analyse multimodale (capture d'écran envoyée en base64) par Gemini.
+// Vision SANS Gemini : on utilise le « cerveau » choisi dans l'app (OpenAI, OpenRouter, Groq…).
+// 1) capture + texte lu à l'écran (si le modèle sait lire les images), 2) sinon texte lu à l'écran seul.
+async function visionWithBrain(req, res, { prompt, imageBase64, mimeType, screenText }) {
+  let llm;
+  try {
+    llm = resolveLLM(req.body);
+  } catch (err) {
+    return res.status(400).json({ error: err.userMessage || err.message });
+  }
+  if (!llm.apiKey) {
+    return res.status(400).json({
+      error: 'Aucune clé IA : ajoute une clé (OpenAI, OpenRouter, Groq…) ou Gemini dans le menu ⚙ > Clés API & fournisseurs.',
+    });
+  }
+  const hasText = typeof screenText === 'string' && screenText.trim();
+  const screenPart = hasText
+    ? "\n\nTexte exact lu à l'écran par le téléphone ([bouton] = on peut appuyer, [champ] = zone de saisie) :\n" +
+      screenText.slice(0, 3000)
+    : '';
+  const style = 'Réponds en français, naturellement, en 4 phrases maximum, sans markdown, à sa demande : ';
+  const withImage = [
+    {
+      type: 'text',
+      text: "Tu es Jarvis. Voici une capture de l'écran du téléphone de l'utilisateur. Regarde-la comme le ferait " +
+        "l'utilisateur. " + style + prompt + screenPart,
+    },
+    { type: 'image_url', image_url: { url: `data:${mimeType || 'image/jpeg'};base64,${imageBase64}` } },
+  ];
+  const textOnly =
+    "Tu es Jarvis. Tu n'as pas l'image de l'écran, seulement le texte que le téléphone y lit : base-toi dessus " +
+    "et dis-le franchement si cela ne suffit pas pour répondre. " + style + prompt + screenPart;
+
+  let lastErr = null;
+  try {
+    const m = await callLLM([{ role: 'user', content: withImage }], llm, null);
+    const text = stripMarkdown(m.content || '');
+    if (text) return res.json({ type: 'speak', text });
+  } catch (err) {
+    lastErr = err; // modèle sans vision, image refusée, etc. : on retente avec le texte seul
+  }
+  if (hasText) {
+    try {
+      const m = await callLLM([{ role: 'user', content: textOnly }], llm, null);
+      const text = stripMarkdown(m.content || '');
+      if (text) return res.json({ type: 'speak', text });
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  const detail = lastErr ? (lastErr.userMessage || lastErr.message) : 'réponse vide';
+  return res.status(502).json({
+    error: `Vision impossible avec « ${llm.model} » (${detail}). Choisis un modèle qui lit les images ` +
+      '(ex. gpt-4o-mini chez OpenAI) ou ajoute une clé Gemini.',
+  });
+}
+
+// Analyse multimodale (capture d'écran envoyée en base64) par Gemini, ou par le cerveau à défaut.
 app.post('/vision', checkSecret, async (req, res) => {
   const { prompt, imageBase64, mimeType, screenText } = req.body;
   if (!prompt || !imageBase64) {
     return res.status(400).json({ error: 'Les champs "prompt" et "imageBase64" sont requis.' });
   }
   const geminiKey = geminiKeyFrom(req.body);
-  if (!geminiKey) return res.status(400).json({ error: "Clé Gemini manquante : menu ⚙ > Clés API & fournisseurs." });
+  if (!geminiKey) return visionWithBrain(req, res, { prompt, imageBase64, mimeType, screenText });
   const geminiModel = geminiModelFrom(req.body);
 
   const screenPart = typeof screenText === 'string' && screenText.trim()
