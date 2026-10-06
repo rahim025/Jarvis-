@@ -354,10 +354,27 @@ body.kb-open #kb-btn, body.kb-open #eye-btn, body.kb-open #settings-gear { displ
 #text-close { background: transparent; color: rgba(255,255,255,.5); }
 body.compact #kb-btn, body.compact #eye-btn, body.compact #text-bar { display: none !important; }
 
+
+/* ── Horloge Jarvis (haut de l'écran) ─────────────────────────────────────── */
+#jarvis-clock {
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+  z-index: 100; pointer-events: none; text-align: center;
+  font-family: 'Courier New', ui-monospace, monospace;
+  font-size: 26px; font-weight: 300; letter-spacing: 4px;
+  color: var(--blue);
+  text-shadow: 0 0 10px var(--blue-glow), 0 0 22px var(--blue-dim);
+  font-variant-numeric: tabular-nums;
+}
+#jarvis-clock .sec { font-size: 18px; opacity: 0.7; margin-left: 2px; }
+#jarvis-clock .blink { animation: clock-blink 1s steps(1) infinite; }
+@keyframes clock-blink { 50% { opacity: 0.25; } }
+body.compact #jarvis-clock { display: none !important; }
 </style>
 </head>
 <body>
   <div id="stars"></div>
+
+  <div id="jarvis-clock"><span id="clk-hm">--:--</span><span class="sec" id="clk-s">:--</span></div>
 
   <div id="connection-badge" class="connected">
     <span id="connection-dot"></span>
@@ -413,6 +430,19 @@ body.compact #kb-btn, body.compact #eye-btn, body.compact #text-bar { display: n
     document.documentElement.style.background = 'transparent';
     document.body.style.background = 'transparent';
   }
+
+
+  // Horloge HH:MM:SS
+  (function () {
+    var hm = document.getElementById('clk-hm'), sc = document.getElementById('clk-s');
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    function tick() {
+      var d = new Date();
+      hm.textContent = p(d.getHours()) + ':' + p(d.getMinutes());
+      sc.textContent = ':' + p(d.getSeconds());
+    }
+    tick(); setInterval(tick, 1000);
+  })();
 
   var orb = null, currentState = 'idle', fakeVol = null;
   var statusEl = document.getElementById('status-text');
