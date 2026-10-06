@@ -91,6 +91,8 @@ object CommandCatalog {
         // 🤖 Tâches en plusieurs étapes
         cmd("run_task", CommandCategory.TASKS, "Ouvre WhatsApp, cherche Crépin, écris “Salut” et envoie le message", tags = listOf("whatsapp", "message", "etapes")),
         cmd("run_task", CommandCategory.TASKS, "Dans {app}, [décris ce que je dois faire]", apps = listOf("YouTube")),
+        cmd("play_game", CommandCategory.TASKS, "Joue à [nom du jeu] pour moi", tags = listOf("jeu", "jeux", "jouer", "partie")),
+        cmd("play_game", CommandCategory.TASKS, "Joue à [nom du jeu] et [ton objectif : gagne, fais le plus de points…]", tags = listOf("jeu", "jeux", "jouer")),
 
         // 📱 Applications
         cmd("open_app", CommandCategory.APPS, "Ouvre {app}", apps = listOf("WhatsApp", "YouTube")),

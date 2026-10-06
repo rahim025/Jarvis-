@@ -165,6 +165,18 @@ class JarvisConversationController(
             return
         }
 
+        // « Arrête de jouer » : coupe la partie en cours tout de suite.
+        if (TaskRunner.running && (norm.contains("arrete de jouer") || norm.contains("arrete la partie") ||
+                norm.contains("stop la partie") || norm.contains("stop jarvis") || norm.contains("arrete jarvis"))
+        ) {
+            TaskRunner.cancel()
+            val msg = "D'accord, j'arrête."
+            onStatus("Jarvis : $msg")
+            onAvatarState("speaking")
+            say(msg)
+            return
+        }
+
         if (isStopPhrase(text)) {
             conversationActive = false
             val bye = "Très bien Monsieur, je reste disponible dès que vous avez besoin de moi."

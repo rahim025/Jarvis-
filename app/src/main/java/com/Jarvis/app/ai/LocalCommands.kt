@@ -54,6 +54,14 @@ object LocalCommands {
 
         if (multi) return null
 
+        // ── Jeux : « joue à Chess », « joue au Ludo pour moi » (avant la règle musique)
+        Regex("^joue (?:a|au|aux) (.+?)(?: pour moi| a ma place)?$").matchEntire(n)?.let { m ->
+            val game = m.groupValues[1].trim()
+            if (game.isNotBlank() && wordCount(game) <= 4) {
+                return listOf(JarvisAction.PlayGame(game, ""))
+            }
+        }
+
         // ── Musique : « joue Burna Boy », « joue Calm Down sur YouTube »
         Regex("^joue (.+?)(?: sur (youtube|spotify))?$").matchEntire(n)?.let { m ->
             val query = m.groupValues[1].trim()

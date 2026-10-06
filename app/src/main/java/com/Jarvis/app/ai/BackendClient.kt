@@ -58,12 +58,34 @@ sealed class JarvisAction {
         val submit: Boolean
     ) : JarvisAction()
     data class SetToggle(val setting: String, val on: Boolean) : JarvisAction()
+    /** Jarvis joue à un jeu à ta place en regardant l'écran (voir TaskRunner.play). */
+    data class PlayGame(val game: String, val goal: String) : JarvisAction()
     data class ShowCommands(val filter: String) : JarvisAction()
     /** mode : "on", "off" ou "status" — réponses automatiques aux messages entrants (voir JarvisNotificationListener). */
     data class AutoReply(val mode: String, val contact: String, val app: String) : JarvisAction()
     /** « Garde la conversation avec cette personne » : lit la discussion ouverte à l'écran (voir ScreenChat). */
     data class KeepConversation(val contact: String) : JarvisAction()
 }
+
+/** Un geste décidé par le cerveau pour jouer. x/y sont entre 0 et 1000 (0,0 = coin haut-gauche de l'écran). */
+data class GameAction(
+    val type: String, // tap, swipe, hold, wait, back
+    val x: Double,
+    val y: Double,
+    val x2: Double,
+    val y2: Double,
+    val ms: Long,
+    val repeat: Int
+)
+
+/** Réponse du cerveau à une capture de jeu : quelques gestes à faire, puis on re-regarde. */
+data class GameStep(
+    val actions: List<GameAction>,
+    val status: String, // playing, done, stuck
+    val say: String,
+    val note: String,
+    val waitMs: Long
+)
 
 /** Prochaine action décidée par le cerveau pour piloter l'écran (boucle adaptative de TaskRunner). */
 data class AgentDecision(
@@ -223,6 +245,60 @@ object BackendClient {
         }
     }
 
+    /**
+     * Envoie une capture du jeu au cerveau (Gemini, ou ton fournisseur si Gemini est indisponible)
+     * et reçoit les prochains gestes à faire. Lance une Exception avec un message lisible en cas d'échec.
+     */
+    fun gameStep(
+        game: String,
+        goal: String,
+        imageBase64: String,
+        history: List<String>,
+        screenText: String,
+        extras: JSONObject? = null
+    ): GameStep {
+        val body = JSONObject().apply {
+            put("game", game)
+            put("goal", goal)
+            put("imageBase64", imageBase64)
+            put("mimeType", "image/jpeg")
+            put("history", JSONArray(history))
+            if (screenText.isNotBlank()) put("screenText", screenText)
+        }
+        copyInto(body, extras)
+        val request = requestBuilder("$BASE_URL/game-step")
+            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        client.newCall(request).execute().use { response ->
+            val json = runCatching { JSONObject(response.body?.string() ?: "") }.getOrNull()
+                ?: throw Exception("réponse illisible du backend")
+            if (!response.isSuccessful) throw Exception(json.optString("error", "erreur inconnue"))
+            val arr = json.optJSONArray("actions") ?: JSONArray()
+            val actions = ArrayList<GameAction>()
+            for (i in 0 until arr.length()) {
+                val a = arr.optJSONObject(i) ?: continue
+                actions.add(
+                    GameAction(
+                        type = a.optString("type"),
+                        x = a.optDouble("x", 500.0),
+                        y = a.optDouble("y", 500.0),
+                        x2 = a.optDouble("x2", 500.0),
+                        y2 = a.optDouble("y2", 500.0),
+                        ms = a.optLong("ms", 0L),
+                        repeat = a.optInt("repeat", 1)
+                    )
+                )
+            }
+            return GameStep(
+                actions = actions,
+                status = json.optString("status", "playing"),
+                say = json.optString("say"),
+                note = json.optString("note"),
+                waitMs = json.optLong("wait_ms", 900L)
+            )
+        }
+    }
+
     data class AutoReplyResult(val reply: String, val skip: Boolean, val reason: String, val remember: String)
 
     private fun historyJson(history: List<Triple<Boolean, String, Long>>): JSONArray {
@@ -376,6 +452,7 @@ object BackendClient {
             query = args.optString("query"),
             submit = args.optString("submit").lowercase() in listOf("true", "oui", "1", "yes")
         )
+        "play_game" -> JarvisAction.PlayGame(args.optString("game"), args.optString("goal"))
         "set_toggle" -> JarvisAction.SetToggle(
             args.optString("setting").lowercase(),
             args.optString("state").lowercase() in listOf("on", "true", "allume", "active", "1")

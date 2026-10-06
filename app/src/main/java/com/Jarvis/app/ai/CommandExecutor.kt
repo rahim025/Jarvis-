@@ -52,14 +52,15 @@ object CommandExecutor {
         is JarvisAction.ClickOnScreen, is JarvisAction.TypeText,
         JarvisAction.GoHome, JarvisAction.GoBack, JarvisAction.CloseApp, is JarvisAction.Scroll,
         is JarvisAction.PlayMusic, is JarvisAction.OpenUrl, is JarvisAction.Navigate,
-        is JarvisAction.DescribeScreen, is JarvisAction.RunTask, is JarvisAction.SetToggle,
+        is JarvisAction.DescribeScreen, is JarvisAction.RunTask, is JarvisAction.SetToggle, is JarvisAction.PlayGame,
         is JarvisAction.ShowCommands, is JarvisAction.KeepConversation -> true
         else -> false
     }
 
     /** Tâches qui peuvent durer plusieurs secondes (pilotage d'écran en plusieurs étapes). */
     fun isLongTask(a: JarvisAction): Boolean =
-        a is JarvisAction.RunTask || a is JarvisAction.SetToggle || a is JarvisAction.KeepConversation
+        a is JarvisAction.RunTask || a is JarvisAction.SetToggle || a is JarvisAction.KeepConversation ||
+            a is JarvisAction.PlayGame
 
     /**
      * Exécute les actions de la commande :
@@ -272,6 +273,8 @@ object CommandExecutor {
             is JarvisAction.RunTask -> TaskRunner.run(context, action)
 
             is JarvisAction.SetToggle -> TaskRunner.setToggle(context, action.setting, action.on)
+
+            is JarvisAction.PlayGame -> TaskRunner.play(context, action.game, action.goal)
 
             is JarvisAction.ShowCommands -> CommandsLauncher.show(context, action.filter)
 

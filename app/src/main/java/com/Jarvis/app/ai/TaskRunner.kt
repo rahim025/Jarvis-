@@ -2,9 +2,12 @@ package com.jarvis.app.ai
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.PointF
+import android.os.Build
 import android.os.SystemClock
 import android.provider.Settings
 import com.jarvis.app.JarvisAccessibilityService
+import com.jarvis.app.JarvisForegroundService
 import com.jarvis.app.UiElement
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -364,6 +367,150 @@ object TaskRunner {
 
     private fun isDangerous(labelNorm: String, goalNorm: String): Boolean =
         DANGEROUS.any { labelNorm.contains(it) && !goalNorm.contains(it) }
+
+    // ── Jeux : boucle « je regarde, je décide, je touche » ──────────────────────
+
+    /** Garde-fous : une partie ne dure jamais indéfiniment. */
+    private const val GAME_MAX_STEPS = 150
+    private const val GAME_MAX_MS = 15 * 60 * 1000L
+
+    /**
+     * Jarvis joue à [game] à ta place. Les jeux n'ont presque jamais de boutons lisibles par
+     * l'accessibilité : on s'appuie donc sur la VISION. À chaque tour : capture d'écran -> le cerveau
+     * renvoie quelques gestes (tap, glissé, appui long, attente) -> on les fait -> on re-regarde.
+     * Adapté aux jeux au tour par tour, puzzles, cartes, jeux « idle » ; trop lent pour l'action en temps réel.
+     */
+    suspend fun play(context: Context, game: String, goal: String): String =
+        withContext(Dispatchers.Default) {
+            val service = JarvisAccessibilityService.instance ?: return@withContext NO_SERVICE
+            if (running) return@withContext "Je suis déjà occupé par une autre tâche."
+            // Sécurité : sans la bulle, tu n'aurais aucun moyen de m'arrêter pendant que je joue.
+            if (!JarvisForegroundService.isRunning) {
+                return@withContext "Active d'abord « Jarvis en arrière-plan » dans le menu ⚙ : " +
+                    "la bulle te permettra de m'arrêter à tout moment pendant que je joue."
+            }
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                return@withContext "Pour regarder l'écran et jouer, il faut Android 11 ou plus."
+            }
+            running = true
+            cancelled = false
+            try {
+                gameLoop(context, service, game, goal)
+            } catch (e: TaskCancelled) {
+                "D'accord, j'arrête de jouer."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                "Je n'ai pas pu continuer à jouer : ${e.message ?: "erreur inconnue"}."
+            } finally {
+                running = false
+                cancelled = false
+            }
+        }
+
+    private suspend fun gameLoop(
+        context: Context,
+        service: JarvisAccessibilityService,
+        game: String,
+        goal: String
+    ): String {
+        if (game.isNotBlank()) {
+            openApp(context, service, game) ?: return "Je ne trouve pas le jeu « $game » sur ton téléphone."
+            delay(2500) // laisse le jeu se charger
+        }
+        val metrics = context.resources.displayMetrics
+        val w = metrics.widthPixels.toFloat()
+        val h = metrics.heightPixels.toFloat()
+        val extras = ApiKeyStore.requestExtras(context)
+        val history = ArrayList<String>()
+        val startedAt = SystemClock.uptimeMillis()
+        var lastShot: String? = null
+        var sameScreen = 0
+        var emptyTurns = 0
+        var gestures = 0
+
+        for (turn in 1..GAME_MAX_STEPS) {
+            checkCancelled()
+            if (SystemClock.uptimeMillis() - startedAt > GAME_MAX_MS) {
+                return "Je joue depuis un moment : je fais une pause après $gestures gestes."
+            }
+            val shot = withContext(Dispatchers.IO) { runCatching { service.captureScreenBase64() }.getOrNull() }
+                ?: return "Je n'arrive pas à capturer l'écran. Vérifie que le contrôle d'écran est activé."
+            sameScreen = if (shot == lastShot) sameScreen + 1 else 0
+            lastShot = shot
+            if (sameScreen >= 4) return "L'écran ne change plus : je m'arrête."
+
+            checkCancelled()
+            val step = try {
+                withContext(Dispatchers.IO) {
+                    BackendClient.gameStep(game, goal, shot, history.takeLast(8), service.readScreenText(800), extras)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return "Je n'arrive pas à voir le jeu : ${e.message ?: "erreur inconnue"}."
+            }
+
+            for (a in step.actions.take(6)) {
+                checkCancelled()
+                performGameAction(service, a, w, h)
+                gestures++
+                history.add(describeGameAction(a))
+            }
+            if (step.note.isNotBlank()) history.add("(vu : ${step.note.take(120)})")
+
+            when (step.status) {
+                "done" -> return step.say.ifBlank { "J'ai fini, je te rends la main." }
+                "stuck" -> return step.say.ifBlank { "Je suis bloqué, j'ai besoin de toi." }
+            }
+            if (step.actions.isEmpty()) {
+                emptyTurns++
+                if (emptyTurns >= 6) return "Je ne sais plus quoi faire dans ce jeu, je te rends la main."
+                delay(1000)
+            } else {
+                emptyTurns = 0
+                delay(step.waitMs.coerceIn(300L, 4000L)) // le temps que le jeu réagisse
+            }
+        }
+        return "J'ai joué $gestures gestes, je fais une pause."
+    }
+
+    /** Fait un geste. Les coordonnées du cerveau (0..1000) sont converties en pixels d'écran. */
+    private suspend fun performGameAction(service: JarvisAccessibilityService, a: GameAction, w: Float, h: Float) {
+        fun px(v: Double): Float = (v.coerceIn(0.0, 1000.0) / 1000.0 * w).toFloat()
+        fun py(v: Double): Float = (v.coerceIn(0.0, 1000.0) / 1000.0 * h).toFloat()
+        when (a.type) {
+            "tap" -> {
+                val times = a.repeat.coerceIn(1, 30)
+                for (i in 1..times) {
+                    checkCancelled()
+                    service.tapAt(px(a.x), py(a.y))
+                    delay(if (times > 1) 120L else 80L)
+                }
+            }
+            "swipe" -> {
+                val d = a.ms.coerceIn(80L, 1500L)
+                service.swipePath(listOf(PointF(px(a.x), py(a.y)), PointF(px(a.x2), py(a.y2))), d)
+                delay(d + 120L)
+            }
+            "hold" -> {
+                val d = a.ms.coerceIn(300L, 3000L)
+                service.swipePath(listOf(PointF(px(a.x), py(a.y))), d)
+                delay(d + 120L)
+            }
+            "wait" -> delay(a.ms.coerceIn(100L, 5000L))
+            "back" -> { service.goBack(); delay(400L) }
+        }
+        delay(150L)
+    }
+
+    private fun describeGameAction(a: GameAction): String = when (a.type) {
+        "tap" -> "tap(${a.x.toInt()},${a.y.toInt()})" + if (a.repeat > 1) " x${a.repeat}" else ""
+        "swipe" -> "swipe(${a.x.toInt()},${a.y.toInt()} -> ${a.x2.toInt()},${a.y2.toInt()})"
+        "hold" -> "hold(${a.x.toInt()},${a.y.toInt()}, ${a.ms}ms)"
+        "wait" -> "wait(${a.ms}ms)"
+        else -> a.type
+    }
 
     // ── Briques communes ───────────────────────────────────────────────────────
 
