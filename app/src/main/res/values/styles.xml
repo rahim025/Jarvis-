@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Style Jarvis pour toutes les fenêtres de dialogue : fond bleu nuit, cadre et boutons cyan. -->
+    <style name="JarvisDialog" parent="Theme.AppCompat.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/jarvis_dialog_bg</item>
+        <item name="android:textColorPrimary">#CFE6F7</item>
+        <item name="android:textColorSecondary">#8FB3CC</item>
+        <item name="android:textColor">#CFE6F7</item>
+        <item name="android:textColorHint">#4A6D88</item>
+        <item name="android:textColorHighlight">#1B4668</item>
+        <item name="colorAccent">#4CA8E8</item>
+        <item name="colorControlNormal">#35506A</item>
+        <item name="colorControlActivated">#4CA8E8</item>
+        <item name="colorControlHighlight">#1B4668</item>
+    </style>
+</resources>
