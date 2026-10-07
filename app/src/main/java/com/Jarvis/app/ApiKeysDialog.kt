@@ -32,22 +32,23 @@ object ApiKeysDialog {
     fun showList(activity: AppCompatActivity, onChanged: (String) -> Unit) {
         val active = ApiKeyStore.activeId(activity)
         val ids = ApiKeyStore.PROVIDERS.map { it.id } + ApiKeyStore.GEMINI_ID
-        val labels = ids.map { id ->
-            val name = if (id == ApiKeyStore.GEMINI_ID) "Gemini (vision d'écran + recherche web)"
-            else ApiKeyStore.PROVIDERS.first { it.id == id }.label
-            val status = when {
-                !ApiKeyStore.hasKey(activity, id) -> "— pas de clé"
-                id == active -> "✓ cerveau actif"
-                else -> "✓ clé enregistrée"
+        val entries = ids.map { id ->
+            val isGemini = id == ApiKeyStore.GEMINI_ID
+            val name = if (isGemini) "Gemini" else ApiKeyStore.PROVIDERS.first { it.id == id }.label
+            val has = ApiKeyStore.hasKey(activity, id)
+            val sub = when {
+                isGemini -> "vision d'écran + recherche web"
+                has && id == active -> "cerveau actif"
+                else -> null
             }
-            "$name\n$status"
-        }.toTypedArray()
-
-        AlertDialog.Builder(activity)
-            .setTitle("Clés API & fournisseurs")
-            .setItems(labels) { _, which -> showEdit(activity, ids[which], onChanged) }
-            .setNegativeButton("Fermer", null)
-            .show()
+            JarvisMenu.Entry(
+                icon = if (isGemini) android.R.drawable.ic_menu_view else android.R.drawable.ic_lock_lock,
+                title = name, sub = sub,
+                badge = if (has) "clé ok" else "pas de clé", badgeOn = has
+            ) { showEdit(activity, id, onChanged) }
+        }
+        JarvisMenu.show(activity, listOf(JarvisMenu.Section("fournisseurs", entries)),
+            title = "Clés API", subtitle = "fournisseurs")
     }
 
     private fun showEdit(activity: AppCompatActivity, id: String, onChanged: (String) -> Unit) {
@@ -126,7 +127,7 @@ object ApiKeysDialog {
             }.start()
         }
 
-        AlertDialog.Builder(activity)
+        AlertDialog.Builder(activity, R.style.JarvisDialog)
             .setTitle(title)
             .setView(box)
             .setPositiveButton("Enregistrer") { _, _ ->

@@ -231,7 +231,7 @@ class MainActivity : AppCompatActivity() {
             val text = runCatching { JarvisMemory.get(this).summaryText() }
                 .getOrDefault("Mémoire indisponible.")
             runOnUiThread {
-                AlertDialog.Builder(this)
+                AlertDialog.Builder(this, R.style.JarvisDialog)
                     .setTitle("Ce que Jarvis sait de moi")
                     .setMessage(text)
                     .setPositiveButton("OK", null)
@@ -241,7 +241,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun confirmClearMemory() {
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.JarvisDialog)
             .setTitle("Effacer la mémoire ?")
             .setMessage("Jarvis oubliera tous les faits et tous les anciens échanges. C'est définitif.")
             .setPositiveButton("Tout effacer") { _, _ ->
@@ -366,7 +366,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 val txt = "${r.ok}/${items.size} fichier(s) envoyé(s) sur ${GithubSync.repo(this)}." +
                     if (r.errors.isEmpty()) "" else "\n\nErreurs :\n" + r.errors.take(5).joinToString("\n")
-                AlertDialog.Builder(this).setTitle("GitHub").setMessage(txt).setPositiveButton("OK", null).show()
+                AlertDialog.Builder(this, R.style.JarvisDialog).setTitle("GitHub").setMessage(txt).setPositiveButton("OK", null).show()
             }
         }.start()
     }

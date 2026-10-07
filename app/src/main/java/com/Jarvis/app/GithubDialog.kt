@@ -27,7 +27,7 @@ object GithubDialog {
             setPadding(p, p / 2, p, 0)
             listOf(token, repo, branch, folder, msg).forEach { addView(it) }
         }
-        AlertDialog.Builder(a)
+        AlertDialog.Builder(a, R.style.JarvisDialog)
             .setTitle("Importer sur GitHub")
             .setMessage("Choisis des fichiers (ou un .zip de projet) : ils seront créés ou mis à jour dans le dépôt.")
             .setView(box)

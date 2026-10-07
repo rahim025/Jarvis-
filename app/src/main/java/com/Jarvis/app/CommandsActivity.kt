@@ -120,7 +120,7 @@ class CommandsActivity : AppCompatActivity() {
             inputType = InputType.TYPE_CLASS_TEXT
             setSingleLine()
         }
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.JarvisDialog)
             .setTitle(match.groupValues[1].replaceFirstChar { it.uppercase() })
             .setView(input)
             .setPositiveButton("OK") { _, _ ->

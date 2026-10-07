@@ -173,7 +173,7 @@ class ConversationsActivity : AppCompatActivity() {
             text = "Effacer cette conversation"
             setTextColor(Color.parseColor("#FF6B6B"))
             setOnClickListener {
-                AlertDialog.Builder(context)
+                AlertDialog.Builder(context, R.style.JarvisDialog)
                     .setTitle("Effacer ?")
                     .setMessage("Jarvis oubliera tout ce qu'il retient de $name (messages et résumé).")
                     .setPositiveButton("Effacer") { _, _ -> store.clear(key); showList() }

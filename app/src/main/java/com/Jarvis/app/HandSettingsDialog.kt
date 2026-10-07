@@ -108,7 +108,7 @@ object HandSettingsDialog {
         }
         root.addView(preview)
 
-        AlertDialog.Builder(activity)
+        AlertDialog.Builder(activity, R.style.JarvisDialog)
             .setTitle("Curseur main")
             .setView(ScrollView(activity).apply { addView(root) })
             .setPositiveButton("Fermer", null)

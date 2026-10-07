@@ -23,6 +23,8 @@ object JarvisMenu {
         val title: String,
         val sub: String? = null,
         val state: Boolean? = null,      // null = flèche ›, sinon voyant on/off
+        val badge: String? = null,       // voyant avec texte libre (ex. « off »), couleur selon badgeOn
+        val badgeOn: Boolean = false,
         val danger: Boolean = false,
         val onClick: () -> Unit
     )
@@ -35,7 +37,7 @@ object JarvisMenu {
     private val TEXT = Color.parseColor("#CFE6F7")
     private val MUTED = Color.parseColor("#5F7F99")
 
-    fun show(a: Activity, sections: List<Section>) {
+    fun show(a: Activity, sections: List<Section>, title: String = "Jarvis", subtitle: String = "réglages") {
         val dm = a.resources.displayMetrics
         fun dp(v: Int) = (v * dm.density).toInt()
         fun box(fill: String, stroke: String, radius: Int) = GradientDrawable().apply {
@@ -58,10 +60,10 @@ object JarvisMenu {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(4), 0, dp(4), dp(8))
             addView(TextView(a).apply {
-                text = "Jarvis"; textSize = 20f; setTextColor(CYAN); letterSpacing = 0.35f
+                text = title; textSize = 20f; setTextColor(CYAN); letterSpacing = 0.35f
             }, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
             addView(TextView(a).apply {
-                text = "réglages"; textSize = 11f; setTextColor(MUTED)
+                text = subtitle; textSize = 11f; setTextColor(MUTED)
                 typeface = Typeface.MONOSPACE; letterSpacing = 0.12f
             })
         })
@@ -102,6 +104,11 @@ object JarvisMenu {
                 row.addView(col, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
 
                 when {
+                    e.badge != null -> row.addView(TextView(a).apply {
+                        text = "● ${e.badge}"
+                        textSize = 11f; typeface = Typeface.MONOSPACE
+                        setTextColor(if (e.badgeOn) GREEN else MUTED)
+                    })
                     e.state != null -> row.addView(TextView(a).apply {
                         text = if (e.state) "● on" else "● off"
                         textSize = 11f; typeface = Typeface.MONOSPACE
