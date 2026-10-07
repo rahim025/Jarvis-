@@ -252,6 +252,40 @@ class JarvisAccessibilityService : AccessibilityService() {
         return focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
     }
 
+    // ── Clavier main : écrire / effacer / envoyer dans la conversation ouverte ──
+
+    private fun focusedInputNode(): AccessibilityNodeInfo? =
+        rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+
+    private fun setNodeText(n: AccessibilityNodeInfo, text: String): Boolean {
+        val args = android.os.Bundle()
+        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        return n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+    }
+
+    /** Ajoute [s] à la fin du texte du champ actif (le texte « Message… » grisé n'est pas du vrai texte). */
+    fun appendToFocusedField(s: String): Boolean {
+        val n = focusedInputNode() ?: return false
+        val cur = if (n.isShowingHintText) "" else n.text?.toString().orEmpty()
+        return setNodeText(n, cur + s)
+    }
+
+    fun backspaceFocusedField(): Boolean {
+        val n = focusedInputNode() ?: return false
+        if (n.isShowingHintText) return true
+        val cur = n.text?.toString().orEmpty()
+        if (cur.isEmpty()) return true
+        return setNodeText(n, cur.dropLast(1))
+    }
+
+    /** Appuie sur « Envoyer » dans l'app ouverte (WhatsApp, Instagram, Messenger…), sinon sur Entrée. */
+    fun sendFocusedMessage(): Boolean {
+        for (label in listOf("Envoyer", "Send", "Enviar")) if (clickByLabel(label)) return true
+        val n = focusedInputNode() ?: return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+        return n.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+    }
+
     fun goHome() = performGlobalAction(GLOBAL_ACTION_HOME)
     fun goBack() = performGlobalAction(GLOBAL_ACTION_BACK)
 

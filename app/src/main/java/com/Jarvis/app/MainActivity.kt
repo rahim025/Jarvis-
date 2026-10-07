@@ -212,6 +212,8 @@ class MainActivity : AppCompatActivity() {
                 JarvisMenu.Entry(android.R.drawable.ic_menu_preferences, "Réglages du curseur", "geste, sensibilité, aperçu") {
                     HandSettingsDialog.show(this)
                 },
+                JarvisMenu.Entry(android.R.drawable.ic_menu_edit, "Clavier main", "pince pour taper, pouce levé = envoyer",
+                    state = JarvisHandTrackingService.keyboardVisible) { toggleHandKeyboard() },
                 JarvisMenu.Entry(android.R.drawable.ic_menu_rotate, "Volant virtuel", "BB Racing, caméra",
                     state = JarvisWheelService.isRunning) { toggleWheel() },
                 JarvisMenu.Entry(android.R.drawable.ic_menu_mylocation, "Boutons de direction du jeu") { calibrateWheel() }
@@ -329,7 +331,23 @@ class MainActivity : AppCompatActivity() {
      * qui reproduit ses mouvements ; pincer pouce-index clique ou glisse à cet endroit.
      * Nécessite la permission caméra + l'affichage par-dessus les autres apps.
      */
-    private fun enableHandCursorMode() {
+    /** Affiche / cache le clavier flottant (démarre le curseur main si besoin). */
+    private fun toggleHandKeyboard() {
+        if (JarvisAccessibilityService.instance == null) {
+            showMessage("Active d'abord « Contrôle d'écran » dans le menu ⚙ : c'est lui qui écrit les lettres.")
+            return
+        }
+        if (JarvisHandTrackingService.isRunning) {
+            startService(
+                Intent(this, JarvisHandTrackingService::class.java)
+                    .setAction(JarvisHandTrackingService.ACTION_TOGGLE_KEYBOARD)
+            )
+        } else {
+            enableHandCursorMode(showKeyboard = true)
+        }
+    }
+
+    private fun enableHandCursorMode(showKeyboard: Boolean = false) {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             != PackageManager.PERMISSION_GRANTED) {
             showMessage("Autorise l'accès à la caméra, puis réessaie depuis le menu ⚙.")
@@ -342,8 +360,15 @@ class MainActivity : AppCompatActivity() {
             return
         }
         stopService(Intent(this, JarvisWheelService::class.java)) // une seule caméra à la fois
-        ContextCompat.startForegroundService(this, Intent(this, JarvisHandTrackingService::class.java))
-        showMessage("Curseur main actif. Choisis le geste de clic et la sensibilité dans le menu ⚙ > Réglages du curseur main.")
+        ContextCompat.startForegroundService(
+            this,
+            Intent(this, JarvisHandTrackingService::class.java)
+                .putExtra(JarvisHandTrackingService.EXTRA_SHOW_KEYBOARD, showKeyboard)
+        )
+        showMessage(
+            if (showKeyboard) "Clavier main actif. Touche un champ de message, puis pince pour taper."
+            else "Curseur main actif. Choisis le geste de clic et la sensibilité dans le menu ⚙ > Réglages du curseur main."
+        )
     }
 
 

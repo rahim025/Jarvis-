@@ -69,6 +69,14 @@ class JarvisHandTrackingService : Service(), LifecycleOwner {
         var isRunning = false
             private set
 
+        /** Intent pour afficher / cacher le clavier main depuis l'app. */
+        const val ACTION_TOGGLE_KEYBOARD = "com.jarvis.app.TOGGLE_KEYBOARD"
+        const val EXTRA_SHOW_KEYBOARD = "show_keyboard"
+
+        /** true tant que le clavier flottant est affiché. */
+        @Volatile var keyboardVisible = false
+            private set
+
         /** Relâcher le clic demande un écart 1,45× plus grand que l'appuyer : évite les clics qui « clignotent ». */
         private const val RELEASE_FACTOR = 1.45f
         private const val LONG_PRESS_MS = 600L
@@ -116,6 +124,16 @@ class JarvisHandTrackingService : Service(), LifecycleOwner {
     private var pressStartTime = 0L
     private val pathPoints = mutableListOf<PointF>()
 
+    // ── Clavier main ──
+    private var keyboard: HandKeyboard? = null
+    private var keyConsumed = false          // le pincement a tapé une touche : pas de clic dessous
+    private var sendHoldStart = 0L           // pouce levé : début du maintien
+    private var sendCooldownUntil = 0L
+    private var vHoldStart = 0L              // signe V : début du maintien (afficher / cacher)
+    private var vCooldownUntil = 0L
+    private val sweep = ArrayList<Pair<Long, Float>>() // positions récentes du pointeur (balayage main ouverte)
+    private var sweepCooldownUntil = 0L
+
     // ── Rester immobile ──
     private var dwellX = 0f
     private var dwellY = 0f
@@ -143,6 +161,7 @@ class JarvisHandTrackingService : Service(), LifecycleOwner {
         readScreenSize()
         startForegroundWithNotification()
         setupDot()
+        keyboard = HandKeyboard(this, windowManager, screenWidth, screenHeight, overlayType())
         HandSettings.registerListener(this, prefsListener)
         loadSettings()
         setupHandLandmarker()
@@ -151,7 +170,32 @@ class JarvisHandTrackingService : Service(), LifecycleOwner {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when {
+            intent?.action == ACTION_TOGGLE_KEYBOARD -> toggleKeyboard()
+            intent?.getBooleanExtra(EXTRA_SHOW_KEYBOARD, false) == true -> showKeyboard()
+        }
         return START_STICKY
+    }
+
+    private fun showKeyboard() {
+        val kb = keyboard ?: return
+        kb.show()
+        // Le point du curseur doit rester AU-DESSUS du clavier : on le remet en dernier.
+        if (::dotView.isInitialized) {
+            runCatching { windowManager.removeView(dotView); windowManager.addView(dotView, dotParams) }
+        }
+        keyboardVisible = kb.isVisible
+        updateNotification("Clavier main : touche un champ de message, puis pince pour taper.")
+    }
+
+    private fun hideKeyboard() {
+        keyboard?.hide()
+        keyboardVisible = false
+        updateNotification("Curseur main actif — ${clickMode.action} pour cliquer.")
+    }
+
+    private fun toggleKeyboard() {
+        if (keyboard?.isVisible == true) hideKeyboard() else showKeyboard()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -471,7 +515,74 @@ class JarvisHandTrackingService : Service(), LifecycleOwner {
         }
 
         moveDot(pointerX, pointerY, visualScale)
+        keyboardGestures(hand, aspect, handSize, now)
         drawPreview(frame, hand, anchor, isPressed || dwellFired, label)
+    }
+
+    /**
+     * Gestes du clavier :
+     *  - V (index + majeur) tenu 1,5 s : affiche / cache le clavier ;
+     *  - pouce levé tenu 1 s : envoie le message ;
+     *  - main ouverte balayée vite vers la gauche : efface une lettre ; vers la droite : espace.
+     */
+    private fun keyboardGestures(hand: List<NormalizedLandmark>, aspect: Float, handSize: Float, now: Long) {
+        val kb = keyboard ?: return
+        fun ext(tip: Int, pip: Int) = dist(hand[tip], hand[0], aspect) > dist(hand[pip], hand[0], aspect) * 1.1f
+        fun fold(tip: Int, pip: Int) = dist(hand[tip], hand[0], aspect) < dist(hand[pip], hand[0], aspect)
+        val idx = ext(8, 6)
+        val mid = ext(12, 10)
+        val ring = ext(16, 14)
+        val pinky = ext(20, 18)
+
+        // V tenu : afficher / cacher
+        val vSign = idx && mid && fold(16, 14) && fold(20, 18)
+        if (vSign && now >= vCooldownUntil) {
+            if (vHoldStart == 0L) vHoldStart = now
+            if (now - vHoldStart >= 1500L) {
+                vHoldStart = 0L
+                vCooldownUntil = now + 2000L
+                toggleKeyboard()
+                return
+            }
+        } else if (!vSign) {
+            vHoldStart = 0L
+        }
+        if (!kb.isVisible) return
+        kb.setHover(pointerX, pointerY)
+
+        // Pouce levé tenu : envoyer
+        val thumbUp = fold(8, 6) && fold(12, 10) && fold(16, 14) && fold(20, 18) &&
+            hand[4].y() < hand[5].y() - 0.35f * handSize &&
+            dist(hand[4], hand[0], aspect) > dist(hand[2], hand[0], aspect) * 1.15f
+        if (!thumbUp) {
+            sendHoldStart = 0L
+            kb.setSendProgress(0f)
+        } else if (now >= sendCooldownUntil) {
+            if (sendHoldStart == 0L) sendHoldStart = now
+            val p = ((now - sendHoldStart) / 1000f).coerceIn(0f, 1f)
+            kb.setSendProgress(p)
+            if (p >= 1f) {
+                sendHoldStart = 0L
+                sendCooldownUntil = now + 2000L
+                kb.setSendProgress(0f)
+                val ok = JarvisAccessibilityService.instance?.sendFocusedMessage() == true
+                kb.flashMessage(if (ok) "Message envoyé" else "Envoi impossible : ouvre une conversation")
+            }
+        }
+
+        // Balayage main ouverte : gauche = effacer, droite = espace
+        val palm = idx && mid && ring && pinky
+        if (!palm) { sweep.clear(); return }
+        sweep.add(now to pointerX)
+        while (sweep.isNotEmpty() && now - sweep.first().first > 300L) sweep.removeAt(0)
+        if (now >= sweepCooldownUntil && sweep.size >= 3) {
+            val dx = sweep.last().second - sweep.first().second
+            if (kotlin.math.abs(dx) > screenWidth * 0.5f) {
+                sweepCooldownUntil = now + 700L
+                sweep.clear()
+                if (dx < 0) kb.backspace() else kb.type(" ")
+            }
+        }
     }
 
     private fun handlePress(pressedNow: Boolean, now: Long) {
@@ -481,6 +592,13 @@ class JarvisHandTrackingService : Service(), LifecycleOwner {
                 pressStartTime = now
                 pathPoints.clear()
                 pathPoints.add(PointF(pointerX, pointerY))
+                // Clavier visible : le pincement tape la touche visée (et ne clique pas dessous).
+                val kb = keyboard
+                if (kb != null && kb.isVisible && sendHoldStart == 0L) {
+                    val k = kb.keyAt(pointerX, pointerY)
+                    if (k != null) { kb.press(k); keyConsumed = true }
+                    else if (kb.covers(pointerX, pointerY)) keyConsumed = true
+                }
             }
             pressedNow && isPressed -> {
                 val last = pathPoints.lastOrNull()
@@ -490,6 +608,7 @@ class JarvisHandTrackingService : Service(), LifecycleOwner {
             }
             !pressedNow && isPressed -> {
                 isPressed = false
+                if (keyConsumed) { keyConsumed = false; pathPoints.clear(); return }
                 val duration = now - pressStartTime
                 val first = pathPoints.firstOrNull() ?: PointF(pointerX, pointerY)
                 val last = pathPoints.lastOrNull() ?: first
@@ -524,8 +643,11 @@ class JarvisHandTrackingService : Service(), LifecycleOwner {
         val progress = ((now - dwellStart).toFloat() / DWELL_MS).coerceIn(0f, 1f)
         if (progress >= 1f) {
             dwellFired = true // il faudra bouger avant le prochain clic
+            val kbKey = keyboard?.takeIf { it.isVisible }?.keyAt(dwellX, dwellY)
             val service = JarvisAccessibilityService.instance
-            if (service == null) {
+            if (kbKey != null) {
+                keyboard?.press(kbKey)
+            } else if (service == null) {
                 updateNotification("Active le contrôle d'écran pour que le geste agisse.")
             } else {
                 service.tapAt(dwellX, dwellY)
@@ -542,6 +664,7 @@ class JarvisHandTrackingService : Service(), LifecycleOwner {
     }
 
     private fun cancelPress() {
+        keyConsumed = false
         isPressed = false
         pathPoints.clear()
     }
@@ -598,6 +721,8 @@ class JarvisHandTrackingService : Service(), LifecycleOwner {
         cameraExecutor.shutdown()
         handLandmarker?.close()
         setPreviewVisible(false)
+        keyboard?.hide()
+        keyboardVisible = false
         if (::dotView.isInitialized) {
             runCatching { windowManager.removeView(dotView) }
         }
