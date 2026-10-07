@@ -38,6 +38,14 @@ class MainActivity : AppCompatActivity() {
         if (uris.isNotEmpty()) uploadToGithub(uris)
     }
 
+    companion object {
+        /** Passé par le service quand le réveil (clap / « Jarvis ») ouvre l'app : elle se met à écouter. */
+        const val EXTRA_AUTO_LISTEN = "auto_listen"
+        /** true tant que l'app est au premier plan (le réveil se met en pause pour libérer le micro). */
+        @Volatile var visible = false
+    }
+
+    private var pendingAutoListen = false
     private var pageReady = false
     private var lastState = "idle"
 
@@ -190,6 +198,10 @@ class MainActivity : AppCompatActivity() {
                 },
                 JarvisMenu.Entry(android.R.drawable.ic_menu_compass, "Jarvis en arrière-plan",
                     state = JarvisForegroundService.isRunning) { toggleBackground() },
+                JarvisMenu.Entry(android.R.drawable.ic_btn_speak_now, "Réveil vocal", WakeSettings.label(this),
+                    state = WakeSettings.mode(this) != WakeSettings.OFF) {
+                    WakeDialog.show(this, ensureService = { toggleBackground() }, onChanged = { showMessage(it) })
+                },
                 JarvisMenu.Entry(android.R.drawable.ic_menu_manage, "Autoriser les réglages", "luminosité") {
                     startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName")))
                 }
@@ -276,14 +288,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_AUTO_LISTEN, false)) pendingAutoListen = true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        visible = true
+        if (intent?.getBooleanExtra(EXTRA_AUTO_LISTEN, false) == true) {
+            pendingAutoListen = true
+            intent.removeExtra(EXTRA_AUTO_LISTEN)
+        }
+        if (pendingAutoListen) {
+            pendingAutoListen = false
+            window.decorView.postDelayed({
+                if (::conversation.isInitialized && !conversation.conversationActive) conversation.activate()
+            }, if (pageReady) 200L else 1500L)
+        }
+    }
+
     override fun onPause() {
         super.onPause()
+        visible = false
         // Si l'app passe en arrière-plan sans que le mode bulle soit actif, on coupe la
         // conversation ici : sinon le SpeechRecognizer lié à cette Activity se met à échouer
         // en boucle (Erreur STT: 5) et l'app semble figée au retour.
-        if (!JarvisForegroundService.isRunning && ::conversation.isInitialized && conversation.conversationActive) {
+        if (::conversation.isInitialized && conversation.conversationActive) {
             conversation.stop()
-            showMessage(
+            if (!JarvisForegroundService.isRunning) showMessage(
                 "Écoute mise en pause (appli en arrière-plan). Retape sur le micro, " +
                     "ou active « Jarvis en arrière-plan » depuis le menu ⚙."
             )

@@ -76,6 +76,39 @@ class JarvisForegroundService : Service() {
     private var replyCard: View? = null
     private val hideReplyRunnable = Runnable { hideReplyCard() }
 
+    // Réveil (double clap / mot « Jarvis ») : écoute seulement quand Jarvis est au repos
+    // (le micro ne peut pas servir à deux écoutes en même temps).
+    private lateinit var wake: WakeListener
+    private var wakeActiveMode: String? = null
+    private val wakeTick = object : Runnable {
+        override fun run() {
+            val mode = WakeSettings.mode(this@JarvisForegroundService)
+            val busy = conversation.conversationActive || MainActivity.visible || com.jarvis.app.ai.TaskRunner.running
+            if (mode == WakeSettings.OFF || busy) {
+                if (wakeActiveMode != null) { wake.stop(); wakeActiveMode = null }
+            } else if (wakeActiveMode != mode) {
+                wake.start(mode); wakeActiveMode = mode
+            }
+            uiHandler.postDelayed(this, 1000)
+        }
+    }
+
+    private fun onWakeTriggered() {
+        wake.stop()
+        wakeActiveMode = null
+        if (WakeSettings.openApp(this)) {
+            // Permis depuis l'arrière-plan grâce à la bulle (autorisation « par-dessus les autres apps »).
+            runCatching {
+                startActivity(Intent(this, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                    putExtra(MainActivity.EXTRA_AUTO_LISTEN, true)
+                })
+            }.onFailure { conversation.activate() }
+        } else {
+            conversation.activate()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         isRunning = true
@@ -83,6 +116,8 @@ class JarvisForegroundService : Service() {
         startForegroundWithNotification()
         setupVoice()
         setupBubble()
+        wake = WakeListener(this) { onWakeTriggered() }
+        uiHandler.post(wakeTick)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -454,6 +489,8 @@ class JarvisForegroundService : Service() {
         super.onDestroy()
         isRunning = false
         instance = null
+        uiHandler.removeCallbacks(wakeTick)
+        if (::wake.isInitialized) wake.stop()
         conversation.stop()
         voiceManager.destroy()
         hideTextPanel()
