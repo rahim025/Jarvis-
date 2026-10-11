@@ -11,6 +11,7 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
+import com.jarvis.app.ai.UserProfile
 
 /**
  * Encapsule l'écoute vocale (Speech-to-Text) et la réponse vocale (Text-to-Speech).
@@ -40,6 +41,10 @@ class VoiceManager(
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 tts?.language = Locale.FRENCH
+                if (UserProfile.voice(context) == UserProfile.VOICE_KAWAI) {
+                    tts?.setPitch(1.7f)
+                    tts?.setSpeechRate(1.1f)
+                }
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {}
                     override fun onDone(utteranceId: String?) {
