@@ -31,10 +31,10 @@ class VoiceManager(
     /** Appelé (sur le thread principal) juste après que Jarvis ait fini de parler. */
     var onSpeakDone: (() -> Unit)? = null
 
-    /** Appelé dès que l'utilisateur commence à parler, y compris pendant que Jarvis parle
-     *  (écoute "barge-in" lancée par startBargeInListening). Sert à couper la voix de Jarvis
-     *  immédiatement pour lui laisser la parole. */
-    var onUserStartedSpeaking: (() -> Unit)? = null
+    /** Appelé (sur le thread principal) avec ce que l'utilisateur a dit PENDANT que Jarvis parle
+     *  (écoute "barge-in" lancée par startBargeInListening). Jarvis ne se coupe plus tout seul
+     *  quand on parle : c'est à l'appelant de décider (ex. couper uniquement sur le mot "stop"). */
+    var onBargeInResult: ((String) -> Unit)? = null
 
     /** true pendant une écoute "barge-in" : on tolère un résultat vide (l'utilisateur n'a peut-être
      *  rien dit) sans le remonter comme une vraie erreur à l'appelant. */
@@ -83,6 +83,14 @@ class VoiceManager(
                 val text = results
                     ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     ?.firstOrNull()
+                if (isBargeInListening) {
+                    // Écoute pendant que Jarvis parle : on ne traite pas ça comme une question.
+                    isBargeInListening = false
+                    val handler = onBargeInResult
+                    if (text != null && handler != null) handler(text)
+                    rearmBargeInIfSpeaking()
+                    return
+                }
                 if (text != null) (resultOverride ?: onResult)(text) else (errorOverride ?: onError)("Rien compris")
             }
 
@@ -95,14 +103,19 @@ class VoiceManager(
                 ) {
                     mainHandler.post { recreateRecognizer() }
                 }
+                if (isBargeInListening) {
+                    // Silence / rien compris pendant que Jarvis parle : ce n'est pas une erreur,
+                    // on continue simplement à guetter le mot "stop" tant qu'il parle.
+                    isBargeInListening = false
+                    if (error != SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) rearmBargeInIfSpeaking()
+                    return
+                }
                 (errorOverride ?: onError)(sttErrorMessage(error))
             }
 
             // Callbacks non utilisés mais requis par l'interface
             override fun onReadyForSpeech(params: Bundle?) {}
-            override fun onBeginningOfSpeech() {
-                mainHandler.post { onUserStartedSpeaking?.invoke() }
-            }
+            override fun onBeginningOfSpeech() {}
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() {}
@@ -141,6 +154,7 @@ class VoiceManager(
 
     fun startListening() {
         if (isDestroyed) return
+        isBargeInListening = false // une écoute normale n'est jamais une écoute "barge-in"
         if (isListening) {
             // Une session précédente n'est pas terminée proprement : on l'annule
             // avant d'en relancer une, sinon le moteur renvoie ERROR_CLIENT.
@@ -168,13 +182,19 @@ class VoiceManager(
         runCatching { speechRecognizer.cancel() }
     }
 
-    /** Écoute lancée PENDANT que Jarvis parle, pour qu'il se taise dès que l'utilisateur
-     *  prend la parole (coupe-parole). onBeginningOfSpeech() déclenche onUserStartedSpeaking,
-     *  qui doit appeler stopSpeaking() côté appelant. */
+    /** Écoute lancée PENDANT que Jarvis parle. Il ne s'arrête plus dès qu'on parle : ce qui est
+     *  entendu arrive dans onBargeInResult, et c'est l'appelant qui décide de couper (mot "stop"). */
     fun startBargeInListening() {
         if (isDestroyed || isListening) return
-        isBargeInListening = true
         startListening()
+        isBargeInListening = true
+    }
+
+    /** Tant que Jarvis parle, on relance l'écoute pour pouvoir entendre un "stop". */
+    private fun rearmBargeInIfSpeaking() {
+        mainHandler.postDelayed({
+            if (!isDestroyed && !isListening && tts?.isSpeaking == true) startBargeInListening()
+        }, 300)
     }
 
     fun speak(text: String) {
