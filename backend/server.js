@@ -143,6 +143,13 @@ const CLIENT_TOOLS = [
   tool('describe_screen', "Regarde l'écran du téléphone (capture + texte affiché) comme le ferait l'utilisateur : à utiliser dès qu'il dit « regarde », « qu'est-ce qui est affiché », « lis-moi l'écran », « résume/traduis cette page », « c'est quoi cette erreur », « que dit ce message »…", {
     question: "ce que l'utilisateur veut savoir sur l'écran",
   }),
+  tool('create_ebook', "Crée un E-BOOK complet (livre numérique : plan, chapitres rédigés, couverture professionnelle, fichier EPUB) sur un sujet, en affichant la progression étape par étape à l'écran. À utiliser dès que l'utilisateur demande de créer, écrire, générer ou faire un e-book, un ebook, un livre numérique ou un guide à vendre (« crée un e-book sur la calvitie », « fais-moi un guide complet sur… »). Pour un simple texte ou une image seule, n'utilise pas cet outil.", {
+    topic: "le sujet de l'e-book, en une phrase claire, ex: la calvitie : causes, solutions et conseils",
+    author: "nom d'auteur à afficher sur la couverture (le prénom de l'utilisateur s'il est connu ; vide sinon)",
+    chapters: "nombre de chapitres de 3 à 10 (vide = 6)",
+    style: "style de couverture demandé : or, bordeaux, vert, corail ou clair (vide = Jarvis choisit selon le sujet)",
+    photo: "pinterest si l'utilisateur veut une photo trouvée sur Pinterest, sinon vide (image générée par IA)",
+  }, ['topic']),
 ];
 
 // Outils exécutés ICI, sur le serveur, avant de répondre.
@@ -297,7 +304,8 @@ function buildSystemPrompt({ facts, relevant, now, cloudContext }) {
       '- Quand une demande enchaîne plusieurs actions DANS une application (ouvrir, chercher, écrire, envoyer…), appelle UNE SEULE fois run_task ' +
       '(send_message pour envoyer un message, search pour chercher, other sinon) : n\'enchaîne jamais open_app, click_on_screen et type_text toi-même, ' +
       'car run_task attend et vérifie chaque étape. Pour le Wi-Fi ou le Bluetooth, utilise set_toggle. Pour « affiche les commandes », utilise show_commands.\n' +
-      '- Quand l\'utilisateur te demande de JOUER à un jeu (« joue à Ludo », « joue à ma place à… »), appelle play_game. Pour de la musique, play_music.\n' +
+            '- Quand l\'utilisateur demande de créer / écrire / générer un e-book, un ebook ou un livre numérique sur un sujet, appelle create_ebook (l\'écran de progression et la couverture sont gérés par l\'application).\n' +
+'- Quand l\'utilisateur te demande de JOUER à un jeu (« joue à Ludo », « joue à ma place à… »), appelle play_game. Pour de la musique, play_music.\n' +
       '- Pour appeler : « appelle X » = call_contact (appel normal), « appelle X sur WhatsApp » = whatsapp_call. ' +
       'Si l\'utilisateur désigne quelqu\'un par un surnom (maman, mon amour...), garde exactement ses mots dans contact ; ' +
       'l\'application retrouvera le bon contact.\n' +
@@ -971,6 +979,9 @@ app.post('/game-step', checkSecret, async (req, res) => {
     res.status(502).json({ error: err.userMessage || err.message });
   }
 });
+
+// ── Atelier e-book : /ebook/start, /ebook/status/:id, /ebook/:id/cover.svg, /ebook/:id/book.epub ──
+require('./ebook').register(app, checkSecret, { resolveLLM, callLLM, geminiKeyFrom, fetch });
 
 app.listen(PORT, () => {
   console.log(`Jarvis backend en écoute sur le port ${PORT}`);
