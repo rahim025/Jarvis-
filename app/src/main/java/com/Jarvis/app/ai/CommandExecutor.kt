@@ -53,7 +53,7 @@ object CommandExecutor {
         JarvisAction.GoHome, JarvisAction.GoBack, JarvisAction.CloseApp, is JarvisAction.Scroll,
         is JarvisAction.PlayMusic, is JarvisAction.OpenUrl, is JarvisAction.Navigate,
         is JarvisAction.DescribeScreen, is JarvisAction.RunTask, is JarvisAction.SetToggle, is JarvisAction.PlayGame,
-        is JarvisAction.ShowCommands, is JarvisAction.KeepConversation, is JarvisAction.CreateEbook -> true
+        is JarvisAction.ShowCommands, is JarvisAction.KeepConversation, is JarvisAction.CreateEbook, is JarvisAction.CreateCode, is JarvisAction.CreateStory -> true
         else -> false
     }
 
@@ -279,6 +279,10 @@ object CommandExecutor {
             is JarvisAction.ShowCommands -> CommandsLauncher.show(context, action.filter)
 
             is JarvisAction.CreateEbook -> EbookLauncher.start(context, action)
+
+            is JarvisAction.CreateCode -> CodeLauncher.start(context, action)
+
+            is JarvisAction.CreateStory -> StoryLauncher.start(context, action)
 
             is JarvisAction.AutoReply -> autoReplyCommand(context, action)
 

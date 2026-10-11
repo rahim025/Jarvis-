@@ -66,6 +66,10 @@ sealed class JarvisAction {
     /** « Garde la conversation avec cette personne » : lit la discussion ouverte à l'écran (voir ScreenChat). */
     data class KeepConversation(val contact: String) : JarvisAction()
     data class CreateEbook(val topic: String, val author: String, val chapters: String, val style: String, val photo: String) : JarvisAction()
+    /** Jarvis écrit un projet de code dans le langage demandé et livre un ZIP prêt pour GitHub (voir CodeClient.kt). */
+    data class CreateCode(val request: String, val language: String, val name: String) : JarvisAction()
+    /** Bande dessinée en cases pour Facebook (voir StoryClient.kt). */
+    data class CreateStory(val topic: String, val pageName: String, val panels: String) : JarvisAction()
 }
 
 /** Un geste décidé par le cerveau pour jouer. x/y sont entre 0 et 1000 (0,0 = coin haut-gauche de l'écran). */
@@ -463,7 +467,11 @@ object BackendClient {
             args.optString("topic"), args.optString("author"), args.optString("chapters"),
             args.optString("style"), args.optString("photo")
         )
+        "create_story" -> JarvisAction.CreateStory(args.optString("topic"), args.optString("pageName"), args.optString("panels"))
         "keep_conversation" -> JarvisAction.KeepConversation(args.optString("contact"))
+        "create_code_project" -> JarvisAction.CreateCode(
+            args.optString("request"), args.optString("language"), args.optString("name")
+        )
         "auto_reply" -> JarvisAction.AutoReply(
             args.optString("mode", "on").lowercase(), args.optString("contact"), args.optString("app")
         )
