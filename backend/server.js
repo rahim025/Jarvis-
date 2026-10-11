@@ -281,10 +281,19 @@ async function runServerTool(name, args, geminiKey, geminiModel) {
 // PERSONNALITÉ + MÉMOIRE (portées de la version Windows)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildSystemPrompt({ facts, relevant, now, cloudContext }) {
+function profileLine(p) {
+  if (!p) return '';
+  const parts = [];
+  if (p.age) parts.push(`L'utilisateur a ${p.age} ans : adapte le contenu à cet âge.`);
+  if (p.tone) parts.push(`Le ton que l'utilisateur veut pour toi : ${String(p.tone).slice(0, 200)}. Tiens ce ton dans toutes tes réponses.`);
+  if (p.voice === 'kawai') parts.push("Tu as une voix de lycéenne japonaise très mignonne : sois douce, enjouée et un peu kawaii, sans en faire trop.");
+  return parts.join(' ');
+}
+
+function buildSystemPrompt({ facts, relevant, now, cloudContext, profile }) {
   const factEntries = Object.entries(facts || {});
   const userName =
-    (facts && (facts['prénom'] || facts['prenom'] || facts['surnom'])) || 'Monsieur';
+    (profile && profile.name) || (facts && (facts['prénom'] || facts['prenom'] || facts['surnom'])) || 'Monsieur';
 
   const factLines = factEntries.map(([k, v]) => `  - ${k} : ${v}`).join('\n');
   const relevantLines = (relevant || [])
@@ -293,7 +302,7 @@ function buildSystemPrompt({ facts, relevant, now, cloudContext }) {
 
   return [
     `Tu es JARVIS, une IA sophistiquée, élégante et experte, qui vit dans le téléphone Android de ${userName}. ` +
-      `${CREATOR_NAME} est ton créateur. Appelle l'utilisateur ${userName}, avec respect et une pointe de sarcasme affectueux.`,
+      `${CREATOR_NAME} est ton créateur. Appelle l'utilisateur ${userName}, avec respect et une pointe de sarcasme affectueux. ${profileLine(profile)}`,
     `Nous sommes le ${now || 'date inconnue'}.`,
 
     'Tu as une MÉMOIRE D\'ÉLÉPHANT : tu te souviens de tout ce qui a été dit lors des conversations passées. ' +
@@ -437,7 +446,7 @@ app.post('/ask', checkSecret, async (req, res) => {
     }
 
     const messages = [
-      { role: 'system', content: buildSystemPrompt({ facts, relevant, now: req.body.now, cloudContext }) },
+      { role: 'system', content: buildSystemPrompt({ facts, relevant, now: req.body.now, cloudContext, profile: req.body.profile }) },
     ];
     recent.forEach((t) => {
       if (!t || !t.user) return;
