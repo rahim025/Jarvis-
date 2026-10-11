@@ -19,6 +19,7 @@
  */
 
 const crypto = require('crypto');
+const { buildPdf } = require('./ebookPdf');
 
 const MAX_JOBS = 30;
 const JOB_TTL_MS = 3 * 60 * 60 * 1000;
@@ -671,6 +672,13 @@ async function runJob(job, deps) {
     job.epub = buildEpub({ meta: job.meta, author: job.author, plan, chapters: bodies, coverSvg: job.coverSvg, id: job.uuid });
     setStep(job, 'epub', 'done', `${Math.round(job.epub.length / 1024)} Ko`);
     pushLog(job, 'EPUB assemblé');
+    try {
+      job.pdf = buildPdf({ meta: job.meta, author: job.author, plan, chapters: bodies, theme: THEMES[job.meta.theme] || THEMES.or_nuit });
+      pushLog(job, `PDF assemblé (${Math.round(job.pdf.length / 1024)} Ko)`);
+    } catch (e) {
+      pushLog(job, `PDF indisponible : ${String(e.message).slice(0, 80)}`);
+      console.error('ebook pdf', job.id, e);
+    }
 
     // 7. Contrôle
     setStep(job, 'check', 'active', 'Vérification de la structure…');
@@ -727,7 +735,7 @@ function createEngine(deps) {
       id, uuid: crypto.randomUUID(), createdAt: Date.now(), finishedAt: 0,
       topic, author: str(body.author, 60) || 'Jarvis', style: str(body.style, 40), photoMode: /pinterest/i.test(str(body.photo, 20)) ? 'pinterest' : 'ai',
       nChapters, words, status: 'running', progress: 0, error: '', cancelled: false,
-      steps: makeSteps(nChapters), log: [], logSeq: 0, stats: { words: 0, chapters: 0 }, meta: null, plan: null, coverSvg: '', epub: null,
+      steps: makeSteps(nChapters), log: [], logSeq: 0, stats: { words: 0, chapters: 0 }, meta: null, plan: null, coverSvg: '', epub: null, pdf: null,
       ctx: { llm, geminiKey: deps.geminiKeyFrom(body) },
     };
     jobs.set(id, job);
@@ -742,7 +750,7 @@ function createEngine(deps) {
       title: job.meta ? job.meta.bookTitle : '', theme: job.meta ? job.meta.theme : '',
       steps: job.steps.map(({ id, label, state, detail }) => ({ id, label, state, detail })),
       log: job.log.filter((l) => l.n > since), logSeq: job.logSeq, stats: job.stats,
-      ready: { cover: !!job.coverSvg, epub: !!job.epub },
+      ready: { cover: !!job.coverSvg, epub: !!job.epub, pdf: !!job.pdf },
     };
   }
 
@@ -770,6 +778,11 @@ function register(app, checkSecret, deps) {
     if (!j.coverSvg) return res.status(409).json({ error: 'La couverture n\'est pas encore prête.' });
     res.type('image/svg+xml').send(j.coverSvg);
   });
+  app.get('/ebook/:id/book.pdf', checkSecret, (req, res) => {
+    const j = find(req, res); if (!j) return;
+    if (!j.pdf) return res.status(409).json({ error: 'Le PDF n\'est pas encore prêt.' });
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="ebook.pdf"' }).send(j.pdf);
+  });
   app.get('/ebook/:id/book.epub', checkSecret, (req, res) => {
     const j = find(req, res); if (!j) return;
     if (!j.epub) return res.status(409).json({ error: 'L\'e-book n\'est pas encore prêt.' });
@@ -781,5 +794,5 @@ function register(app, checkSecret, deps) {
 module.exports = {
   register,
   createEngine,
-  _internals: { buildCoverSvg, buildEpub, zipStore, crc32, textToXhtml, wrapText, analyseTopic, planBook, pickTheme, THEMES },
+  _internals: { buildPdf, buildCoverSvg, buildEpub, zipStore, crc32, textToXhtml, wrapText, analyseTopic, planBook, pickTheme, THEMES },
 };
