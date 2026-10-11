@@ -30,7 +30,7 @@ class SetupActivity : AppCompatActivity() {
     private val textMain = Color.parseColor("#E6F7FF")
     private val textSoft = Color.parseColor("#CFE6F7")
     private val muted = Color.parseColor("#5F7F99")
-    private val hint = Color.parseColor("#4A6D88")
+    private val hintColor = Color.parseColor("#4A6D88")
 
     private fun px(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -54,7 +54,7 @@ class SetupActivity : AppCompatActivity() {
         fun field(hintText: String, numeric: Boolean = false, multiline: Boolean = false) = EditText(this).apply {
             this.hint = hintText
             setTextColor(textMain)
-            setHintTextColor(hint)
+            setHintTextColor(hintColor)
             textSize = 15f
             background = cardShape(border)
             setPadding(px(14), px(14), px(14), px(14))
