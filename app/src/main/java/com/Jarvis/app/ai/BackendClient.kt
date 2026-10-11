@@ -67,7 +67,7 @@ sealed class JarvisAction {
     data class KeepConversation(val contact: String) : JarvisAction()
     data class CreateEbook(val topic: String, val author: String, val chapters: String, val style: String, val photo: String) : JarvisAction()
     /** Jarvis écrit un projet de code dans le langage demandé et livre un ZIP prêt pour GitHub (voir CodeClient.kt). */
-    data class CreateCode(val request: String, val language: String, val name: String) : JarvisAction()
+    data class CreateCode(val request: String, val language: String, val name: String, val mode: String) : JarvisAction()
     /** Bande dessinée en cases pour Facebook (voir StoryClient.kt). */
     data class CreateStory(val topic: String, val pageName: String, val panels: String) : JarvisAction()
 }
@@ -470,7 +470,7 @@ object BackendClient {
         "create_story" -> JarvisAction.CreateStory(args.optString("topic"), args.optString("pageName"), args.optString("panels"))
         "keep_conversation" -> JarvisAction.KeepConversation(args.optString("contact"))
         "create_code_project" -> JarvisAction.CreateCode(
-            args.optString("request"), args.optString("language"), args.optString("name")
+            args.optString("request"), args.optString("language"), args.optString("name"), args.optString("mode")
         )
         "auto_reply" -> JarvisAction.AutoReply(
             args.optString("mode", "on").lowercase(), args.optString("contact"), args.optString("app")

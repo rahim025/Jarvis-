@@ -8,6 +8,7 @@ import android.os.Looper
 import android.provider.MediaStore
 import android.widget.Toast
 import com.jarvis.app.BuildConfig
+import com.jarvis.app.PreviewActivity
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -41,11 +42,12 @@ object CodeClient {
         return CodeException(msg.ifBlank { "Erreur du serveur ($code)." })
     }
 
-    fun start(ctx: Context, request: String, language: String, name: String): String {
+    fun start(ctx: Context, request: String, language: String, name: String, mode: String): String {
         val body = JSONObject(ApiKeyStore.requestExtras(ctx).toString())
             .put("request", request)
             .put("language", language)
             .put("name", name)
+            .put("mode", mode)
         val req = request("/code/start")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
@@ -64,6 +66,14 @@ object CodeClient {
         }
     }
 
+    /** Code source de l'aperçu (index.html) pour les projets en mode web. */
+    fun source(id: String): String {
+        http.newCall(request("/code/$id/source").get().build()).execute().use { r ->
+            if (!r.isSuccessful) throw errorOf(r.code, r.body?.string())
+            return r.body?.string() ?: throw CodeException("Code vide.")
+        }
+    }
+
     fun download(id: String): ByteArray {
         http.newCall(request("/code/$id/project.zip").get().build()).execute().use { r ->
             if (!r.isSuccessful) throw errorOf(r.code, r.body?.string())
@@ -79,15 +89,15 @@ object CodeLauncher {
         val request = action.request.trim()
         if (request.isBlank()) return "Qu'est-ce que je dois coder ?"
         val app = context.applicationContext
-        thread(name = "code-project") { runJob(app, request, action.language.trim(), action.name.trim()) }
+        thread(name = "code-project") { runJob(app, request, action.language.trim(), action.name.trim(), action.mode.trim()) }
         return "C'est parti, je code le projet. Je te préviens quand le ZIP est prêt."
     }
 
-    private fun runJob(ctx: Context, request: String, language: String, name: String) {
+    private fun runJob(ctx: Context, request: String, language: String, name: String, mode: String) {
         val handler = Handler(Looper.getMainLooper())
         fun say(msg: String) = handler.post { Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show() }
         try {
-            val id = CodeClient.start(ctx, request, language, name)
+            val id = CodeClient.start(ctx, request, language, name, mode)
             var fails = 0
             while (true) {
                 Thread.sleep(2500)
@@ -99,6 +109,10 @@ object CodeLauncher {
                 }
                 when (st.optString("status")) {
                     "done" -> {
+                        if (st.optBoolean("web")) {
+                            ctx.startActivity(PreviewActivity.intent(ctx, id, st.optString("name", "projet")))
+                            return
+                        }
                         val bytes = CodeClient.download(id)
                         val file = saveZip(ctx, bytes, st.optString("name", "projet"))
                         say("Projet prêt : $file")
@@ -112,7 +126,7 @@ object CodeLauncher {
         }
     }
 
-    private fun saveZip(ctx: Context, bytes: ByteArray, projectName: String): String {
+    fun saveZip(ctx: Context, bytes: ByteArray, projectName: String): String {
         val fileName = "${projectName.ifBlank { "projet" }}.zip"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
