@@ -114,7 +114,7 @@ button.primary{background:var(--armor);color:#1a1204;border-color:var(--armor)}
 button.primary:active{background:#ffd27a}
 button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 body.running #btn-cancel,
-body.done #btn-open,body.done #btn-share,body.done #btn-png,
+body.done #btn-open,body.done #btn-share,body.done #btn-pdf,body.done #btn-png,
 body.error #btn-retry,body.error #btn-close,body.cancelled #btn-retry,body.cancelled #btn-close{display:block}
 body.done .actions{flex-wrap:wrap}
 body.done{padding-bottom:calc(170px + env(safe-area-inset-bottom,0px))}
@@ -189,6 +189,7 @@ body.done #btn-open{flex-basis:100%}
   <button id="btn-cancel" type="button">Annuler la création</button>
   <button id="btn-open" class="primary" type="button">Ouvrir l'e-book</button>
   <button id="btn-share" type="button">Partager</button>
+  <button id="btn-pdf" class="primary" type="button">Télécharger en PDF</button>
   <button id="btn-png" type="button">Couverture PNG</button>
   <button id="btn-retry" class="primary" type="button">Réessayer</button>
   <button id="btn-close" type="button">Fermer</button>
@@ -353,6 +354,7 @@ body.done #btn-open{flex-basis:100%}
   $('#btn-cancel').onclick = function(){ nativeCall('cancel'); };
   $('#btn-open').onclick = function(){ nativeCall('openBook'); };
   $('#btn-share').onclick = function(){ nativeCall('shareBook'); };
+  $('#btn-pdf').onclick = function(){ nativeCall('savePdf'); };
   $('#btn-png').onclick = function(){ HUD.exportCover(); };
   $('#btn-retry').onclick = function(){ nativeCall('retry'); };
   $('#btn-close').onclick = function(){ nativeCall('close'); };
