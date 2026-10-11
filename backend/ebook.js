@@ -630,7 +630,21 @@ async function runJob(job, deps) {
       const id = 'ch' + (i + 1);
       setStep(job, id, 'active', 'Rédaction en cours…');
       pushLog(job, `Rédaction du chapitre ${i + 1}…`);
-      const body = await writeChapter(deps, llm, job.meta, plan, i, job.words);
+      let body;
+      let chAttempt = 0;
+      while (true) {
+        checkCancel(job);
+        try {
+          body = await writeChapter(deps, llm, job.meta, plan, i, job.words);
+          break;
+        } catch (e) {
+          if (e instanceof Cancelled) throw e;
+          chAttempt++;
+          const msg = e.userMessage || e.message || 'Erreur inconnue';
+          pushLog(job, `Chapitre ${i + 1} : tentative ${chAttempt} échouée (${String(msg).slice(0, 100)}) — nouvel essai…`);
+          await sleep(Math.min(15000 * chAttempt, 120000));
+        }
+      }
       bodies.push(body);
       const wc = countWords(body);
       job.stats.words += wc;
