@@ -106,6 +106,35 @@ async function generateProject(deps, llm, request, language, name, log) {
   };
 }
 
+/** Site ou application web : UN fichier index.html autonome, affichable tout de suite dans l'aperçu. */
+async function generateWeb(deps, llm, request, name, log) {
+  const system =
+    "Tu es un développeur web senior et designer UI. Tu écris un site ou une application web complète dans UN SEUL fichier HTML autonome " +
+    '(HTML, CSS et JavaScript à l\'intérieur). Tu réponds UNIQUEMENT par un objet JSON valide, sans markdown.';
+  const user =
+    `Demande : « ${request} »\n` +
+    (name ? `Nom : ${name}\n` : '') +
+    'Règles : un seul fichier index.html ; CSS et JavaScript inline ; aucune dépendance externe ni CDN ; ' +
+    'design soigné et moderne, responsive, utilisable au pouce sur téléphone ; fonctionnalités réellement opérationnelles, sans TODO ; ' +
+    'textes en français ; pas de secret ni de clé en dur.\n' +
+    'Schéma exact : { "projectName": "nom-court-en-minuscules", "summary": "une phrase", ' +
+    '"files": [ { "path": "index.html", "content": "HTML complet" } ] }';
+  const j = await askJson(deps, llm, system, user);
+  const page = (Array.isArray(j.files) ? j.files : []).find((f) => f && f.path === 'index.html' && typeof f.content === 'string');
+  if (!page || page.content.length < 200) throw new Error('La page générée est vide ou incomplète.');
+  log('Page générée, ajout du README…');
+  const projectName = slugify(name || j.projectName || request);
+  return {
+    projectName,
+    summary: str(j.summary, 300),
+    files: [
+      { path: 'index.html', content: page.content },
+      { path: 'README.md', content: `# ${projectName}\n\nOuvre index.html dans ton navigateur, ou publie-le gratuitement avec GitHub Pages.\n` },
+      { path: '.gitignore', content: '.DS_Store\n' },
+    ],
+  };
+}
+
 function buildZip(project) {
   const root = project.projectName;
   const entries = project.files.map((f) => ({ name: `${root}/${f.path}`, data: Buffer.from(f.content, 'utf8') }));
@@ -134,7 +163,7 @@ function createEngine(deps) {
     const id = crypto.randomBytes(8).toString('hex');
     const job = {
       id, createdAt: Date.now(), finishedAt: 0, status: 'running', progress: 5, error: '',
-      request, language: str(body.language, 40), name: '', summary: '', files: [], zip: null,
+      request, language: str(body.language, 40), mode: body.mode === 'web' ? 'web' : 'files', html: null, name: '', summary: '', files: [], zip: null,
       log: [], logSeq: 0,
     };
     const log = (msg) => { job.logSeq += 1; job.log.push({ n: job.logSeq, msg }); if (job.log.length > 100) job.log.shift(); };
@@ -144,10 +173,14 @@ function createEngine(deps) {
       try {
         log('Analyse de la demande…');
         job.progress = 15;
-        const project = await generateProject(deps, llm, request, job.language, str(body.name, 60), (m) => { job.progress = 60; log(m); });
+        const onLog = (m) => { job.progress = 60; log(m); };
+        const project = job.mode === 'web'
+          ? await generateWeb(deps, llm, request, str(body.name, 60), onLog)
+          : await generateProject(deps, llm, request, job.language, str(body.name, 60), onLog);
         job.name = project.projectName;
         job.summary = project.summary;
         job.files = project.files.map((f) => f.path);
+        job.html = (project.files.find((f) => f.path === 'index.html') || {}).content || null;
         job.progress = 85;
         log(`${project.files.length} fichiers écrits`);
         job.zip = buildZip(project);
@@ -189,7 +222,7 @@ function register(app, checkSecret, deps) {
     const j = find(req, res); if (!j) return;
     res.json({
       status: j.status, progress: j.progress, error: j.error, name: j.name, summary: j.summary,
-      files: j.files, log: j.log, logSeq: j.logSeq,
+      files: j.files, log: j.log, logSeq: j.logSeq, mode: j.mode, web: !!j.html,
       elapsed: Math.round(((j.finishedAt || Date.now()) - j.createdAt) / 1000),
     });
   });
@@ -198,7 +231,12 @@ function register(app, checkSecret, deps) {
     if (!j.zip) return res.status(409).json({ error: "Le ZIP n'est pas encore prêt." });
     res.set({ 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="${j.name || 'projet'}.zip"` }).send(j.zip);
   });
+  app.get('/code/:id/source', checkSecret, (req, res) => {
+    const j = find(req, res); if (!j) return;
+    if (!j.html) return res.status(409).json({ error: "Pas d'aperçu pour ce projet." });
+    res.type('text/plain; charset=utf-8').send(j.html);
+  });
   return engine;
 }
 
-module.exports = { register, createEngine, _internals: { generateProject, buildZip, safePath } };
+module.exports = { register, createEngine, _internals: { generateProject, generateWeb, buildZip, safePath } };
