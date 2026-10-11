@@ -55,6 +55,7 @@ class EbookActivity : AppCompatActivity() {
     @Volatile private var title: String = ""
     private var worker: Thread? = null
     private var epubFile: File? = null
+    private var pdfFile: File? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,6 +95,7 @@ class EbookActivity : AppCompatActivity() {
         stopped = false
         val g = ++generation
         epubFile = null
+        pdfFile = null
         val topic = intent.getStringExtra(EXTRA_TOPIC).orEmpty()
         js("HUD.init(${JSONObject().put("topic", topic)})")
         worker = thread(name = "ebook-poll") { runJob(topic, g) }
@@ -138,7 +140,8 @@ class EbookActivity : AppCompatActivity() {
                 when (st.optString("status")) {
                     "done" -> {
                         val bytes = EbookClient.download(id, "book.epub")
-                        if (live(g)) saveEpub(bytes)
+                        val pdf = runCatching { EbookClient.download(id, "book.pdf") }.getOrNull()
+                        if (live(g)) saveEpub(bytes, pdf)
                         return
                     }
                     "error", "cancelled" -> return
@@ -169,10 +172,39 @@ class EbookActivity : AppCompatActivity() {
     private fun dir(name: String): File =
         File(getExternalFilesDir(null) ?: filesDir, name).apply { mkdirs() }
 
-    private fun saveEpub(bytes: ByteArray) {
+    private fun saveEpub(bytes: ByteArray, pdf: ByteArray?) {
         val f = File(dir("ebooks"), "${slug()}.epub")
         f.writeBytes(bytes)
         epubFile = f
+        if (pdf != null) pdfFile = File(dir("ebooks"), "${slug()}.pdf").also { it.writeBytes(pdf) }
+    }
+
+    /** Enregistre le PDF dans Téléchargements/Jarvis (Android 10+), sinon le partage. */
+    private fun savePdf() {
+        val f = pdfFile ?: return toast("Le PDF n'est pas encore prêt.")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, "${slug()}.pdf")
+                put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
+                put(MediaStore.Downloads.RELATIVE_PATH, "Download/Jarvis")
+            }
+            val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            val ok = uri != null && runCatching {
+                contentResolver.openOutputStream(uri)!!.use { out -> f.inputStream().use { it.copyTo(out) } }
+            }.isSuccess
+            if (ok) js("HUD.toast('PDF enregistré dans Téléchargements/Jarvis')") else toast("Impossible d'enregistrer le PDF.")
+        } else {
+            sharePdf()
+        }
+    }
+
+    private fun sharePdf() {
+        val f = pdfFile ?: return toast("Le PDF n'est pas encore prêt.")
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("application/pdf")
+            .putExtra(Intent.EXTRA_STREAM, uriFor(f))
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        startActivity(Intent.createChooser(send, "Partager le PDF"))
     }
 
     private fun uriFor(f: File) = FileProvider.getUriForFile(this, "$packageName.fileprovider", f)
@@ -246,6 +278,7 @@ class EbookActivity : AppCompatActivity() {
         @JavascriptInterface fun close() = runOnUiThread { finish() }
         @JavascriptInterface fun openBook() = runOnUiThread { this@EbookActivity.openBook() }
         @JavascriptInterface fun shareBook() = runOnUiThread { this@EbookActivity.shareBook() }
+        @JavascriptInterface fun savePdf() = runOnUiThread { this@EbookActivity.savePdf() }
         @JavascriptInterface fun saveCover(pngBase64: String) = runOnUiThread { this@EbookActivity.saveCover(pngBase64) }
     }
 }
