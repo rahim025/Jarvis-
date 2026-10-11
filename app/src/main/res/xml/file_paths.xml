@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dossiers partageables via FileProvider : e-books (.epub) et couvertures (.png) créés par Jarvis. -->
+<paths>
+    <external-files-path name="ebooks_ext" path="ebooks/" />
+    <external-files-path name="covers_ext" path="covers/" />
+    <files-path name="ebooks_int" path="ebooks/" />
+    <files-path name="covers_int" path="covers/" />
+</paths>
