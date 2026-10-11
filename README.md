@@ -101,3 +101,15 @@ la liste affichée est donc toujours à jour. Pense à redéployer le backend.
 ## Sécurité
 
 `local.properties` et `backend/.env` sont dans `.gitignore` — ne les publie jamais.
+
+## 📚 Atelier e-book
+
+Dis (ou écris) **« Crée un e-book sur [sujet] »** : Jarvis ouvre l'écran *Atelier e-book* (style JARVIS) et montre chaque étape en direct : analyse du sujet, plan, rédaction chapitre par chapitre, visuel, couverture, assemblage EPUB, contrôle final.
+
+- Options dans la phrase : le nombre de chapitres (3 à 10), le style de couverture (**or, bordeaux, vert, corail, clair**), `photo Pinterest`.
+- Résultat : un fichier **.epub** (ouvrir / partager) et la couverture en **PNG** (enregistrée dans Images/Jarvis).
+- 100 % gratuit : texte via ton fournisseur IA habituel, image via Gemini si une clé existe, sinon Pollinations ; si aucune image n'est joignable, la couverture utilise un motif graphique.
+- Le texte de la couverture est dessiné par le code (net, sans faute), jamais par l'IA d'image.
+
+Fichiers : `backend/ebook.js` (moteur + routes `/ebook/*`), `app/src/main/assets/ebook_hud.html` (écran), `EbookActivity.kt` / `ai/EbookClient.kt` (Android).
+Variable optionnelle côté serveur : `EBOOK_IMAGE_MODEL` (modèle d'image Gemini, défaut `gemini-3.1-flash-image`).
