@@ -134,5 +134,8 @@
             </intent-filter>
         </receiver>
 
+            <activity
+            android:name=".PreviewActivity"
+            android:exported="false" />
     </application>
 </manifest>
