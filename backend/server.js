@@ -150,6 +150,16 @@ const CLIENT_TOOLS = [
     style: "style de couverture demandé : or, bordeaux, vert, corail ou clair (vide = Jarvis choisit selon le sujet)",
     photo: "pinterest si l'utilisateur veut une photo trouvée sur Pinterest, sinon vide (image générée par IA)",
   }, ['topic']),
+  tool('create_code_project', "Écrit un programme, un script, une application ou un site dans N'IMPORTE QUEL langage (Python, JavaScript, Kotlin, Java, C, C++, C#, Go, Rust, PHP, HTML/CSS, SQL, Bash…) et le livre sous forme de fichiers et d'un ZIP prêt pour GitHub. À utiliser dès que l'utilisateur demande de coder, créer ou écrire un script, un programme, une application, un site ou un projet (« code-moi un script Python qui… », « fais-moi un site avec… », « crée un projet Kotlin… », « mets-le dans un zip pour GitHub »). Pour une simple question de programmation à laquelle on répond en texte, n'utilise pas cet outil.", {
+    request: "ce que le programme doit faire, en une ou deux phrases claires",
+    language: "langage demandé (ex: python, kotlin, javascript) ; vide = Jarvis choisit le plus adapté",
+    name: "nom du projet (optionnel)",
+  }, ['request']),
+  tool('create_story', "Crée une histoire en BANDE DESSINÉE (cases illustrées avec bulles de dialogue) prête à poster sur Facebook. À utiliser dès que l'utilisateur demande une histoire en images, une BD, une histoire à mettre sur Facebook, une série de cases (« fais une histoire sur… », « crée une BD sur… », « fais-moi une histoire de couple/drame/humour pour Facebook »). Les images sont produites par l'application, une par case, en PNG.", {
+    topic: "le sujet ou l'idée de l'histoire, en une phrase claire",
+    pageName: "nom de la page à afficher en bas de chaque case (ex: le nom de la page Facebook de l'utilisateur) ; vide = Jarvis",
+    panels: "nombre de cases de 2 à 8 (vide = 4)",
+  }, ['topic']),
 ];
 
 // Outils exécutés ICI, sur le serveur, avant de répondre.
@@ -305,6 +315,8 @@ function buildSystemPrompt({ facts, relevant, now, cloudContext }) {
       '(send_message pour envoyer un message, search pour chercher, other sinon) : n\'enchaîne jamais open_app, click_on_screen et type_text toi-même, ' +
       'car run_task attend et vérifie chaque étape. Pour le Wi-Fi ou le Bluetooth, utilise set_toggle. Pour « affiche les commandes », utilise show_commands.\n' +
             '- Quand l\'utilisateur demande de créer / écrire / générer un e-book, un ebook ou un livre numérique sur un sujet, appelle create_ebook (l\'écran de progression et la couverture sont gérés par l\'application).\n' +
+'- Quand l\'utilisateur demande de coder, écrire ou créer un programme, un script, une application, un site ou un projet, dans n\'importe quel langage, appelle create_code_project (les fichiers et le ZIP prêt pour GitHub sont gérés par l\'application).\n' +
+'- Quand l\'utilisateur demande une histoire en images, une BD ou des cases à poster sur Facebook, appelle create_story (les images et les PNG sont produits par l\'application).\n' +
 '- Quand l\'utilisateur te demande de JOUER à un jeu (« joue à Ludo », « joue à ma place à… »), appelle play_game. Pour de la musique, play_music.\n' +
       '- Pour appeler : « appelle X » = call_contact (appel normal), « appelle X sur WhatsApp » = whatsapp_call. ' +
       'Si l\'utilisateur désigne quelqu\'un par un surnom (maman, mon amour...), garde exactement ses mots dans contact ; ' +
@@ -982,6 +994,8 @@ app.post('/game-step', checkSecret, async (req, res) => {
 
 // ── Atelier e-book : /ebook/start, /ebook/status/:id, /ebook/:id/cover.svg, /ebook/:id/book.epub ──
 require('./ebook').register(app, checkSecret, { resolveLLM, callLLM, geminiKeyFrom, fetch });
+require('./codeproject').register(app, checkSecret, { resolveLLM, callLLM });
+require('./storyboard').register(app, checkSecret, { resolveLLM, callLLM, fetch });
 
 app.listen(PORT, () => {
   console.log(`Jarvis backend en écoute sur le port ${PORT}`);
