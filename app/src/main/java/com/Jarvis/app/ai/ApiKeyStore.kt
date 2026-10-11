@@ -115,6 +115,7 @@ object ApiKeyStore {
     /** Champs ajoutés à chaque requête vers le backend (vide si rien n'est configuré dans l'app). */
     fun requestExtras(ctx: Context): JSONObject {
         val out = JSONObject()
+        out.put("profile", UserProfile.toJson(ctx))
         activeId(ctx)?.let { id ->
             val base = getBaseUrl(ctx, id)
             val model = getModel(ctx, id)
