@@ -11,7 +11,7 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Parle aux routes /ebook/* du backend (création d'un e-book, progression, téléchargement).
+ * Parle aux routes /ebook/… du backend (création d'un e-book, progression, téléchargement).
  * Tout est bloquant : à appeler hors du thread principal.
  */
 object EbookClient {
