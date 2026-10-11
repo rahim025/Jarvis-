@@ -68,10 +68,13 @@ class JarvisConversationController(
         voiceManager.onSpeakDone = {
             if (conversationActive) startListeningRound() else onAvatarState("idle")
         }
-        // Coupe-parole : dès que l'utilisateur commence à parler (même pendant que Jarvis
-        // parle), on arrête immédiatement la voix de Jarvis pour le laisser s'exprimer.
-        voiceManager.onUserStartedSpeaking = {
-            if (conversationActive) voiceManager.stopSpeaking()
+        // Coupe-parole : Jarvis ne s'arrête PAS parce qu'on parle. Seul le mot "stop", dit seul,
+        // coupe sa voix. Tout le reste dit pendant qu'il parle est ignoré.
+        voiceManager.onBargeInResult = { heard ->
+            if (conversationActive && isStopWordOnly(heard)) {
+                voiceManager.stopSpeaking()
+                startListeningRound()
+            }
         }
     }
 
@@ -284,9 +287,8 @@ class JarvisConversationController(
         voiceManager.startListening()
     }
 
-    // Remarque : quand l'utilisateur coupe la parole à Jarvis (voir onUserStartedSpeaking),
-    // l'écoute "barge-in" déjà en cours capture directement sa phrase et la fait remonter par
-    // onVoiceResult -> handle(), donc aucune étape supplémentaire n'est nécessaire ici.
+    // Remarque : pendant que Jarvis parle, l'écoute "barge-in" ne remonte que par
+    // onBargeInResult (voir init) : seul "stop" le coupe, le reste est ignoré.
 
     /** "Bonjour <prénom>" ou "Bonsoir <prénom>" selon l'heure au Bénin (Africa/Porto-Novo, UTC+1).
      *  Le prénom vient de la mémoire (« retiens que je m'appelle… »), sinon "Monsieur". */
@@ -309,6 +311,12 @@ class JarvisConversationController(
             .replace(Regex("[ûùü]"), "u")
             .replace(Regex("[^a-z0-9' ]"), "")
             .trim()
+    }
+
+    /** true si l'utilisateur n'a dit que "stop" (éventuellement répété : "stop stop"). */
+    private fun isStopWordOnly(text: String): Boolean {
+        val words = normalize(text).split(" ").filter { it.isNotEmpty() }
+        return words.isNotEmpty() && words.all { it == "stop" }
     }
 
     private fun isStopPhrase(text: String): Boolean {
