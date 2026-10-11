@@ -53,7 +53,7 @@ object CommandExecutor {
         JarvisAction.GoHome, JarvisAction.GoBack, JarvisAction.CloseApp, is JarvisAction.Scroll,
         is JarvisAction.PlayMusic, is JarvisAction.OpenUrl, is JarvisAction.Navigate,
         is JarvisAction.DescribeScreen, is JarvisAction.RunTask, is JarvisAction.SetToggle, is JarvisAction.PlayGame,
-        is JarvisAction.ShowCommands, is JarvisAction.KeepConversation -> true
+        is JarvisAction.ShowCommands, is JarvisAction.KeepConversation, is JarvisAction.CreateEbook -> true
         else -> false
     }
 
@@ -277,6 +277,8 @@ object CommandExecutor {
             is JarvisAction.PlayGame -> TaskRunner.play(context, action.game, action.goal)
 
             is JarvisAction.ShowCommands -> CommandsLauncher.show(context, action.filter)
+
+            is JarvisAction.CreateEbook -> EbookLauncher.start(context, action)
 
             is JarvisAction.AutoReply -> autoReplyCommand(context, action)
 

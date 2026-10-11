@@ -93,6 +93,8 @@ object CommandCatalog {
         cmd("run_task", CommandCategory.TASKS, "Dans {app}, [décris ce que je dois faire]", apps = listOf("YouTube")),
         cmd("play_game", CommandCategory.TASKS, "Joue à [nom du jeu] pour moi", tags = listOf("jeu", "jeux", "jouer", "partie")),
         cmd("play_game", CommandCategory.TASKS, "Joue à [nom du jeu] et [ton objectif : gagne, fais le plus de points…]", tags = listOf("jeu", "jeux", "jouer")),
+        cmd("create_ebook", CommandCategory.TASKS, "Crée un e-book sur [sujet]", tags = listOf("ebook", "livre", "guide", "couverture", "epub")),
+        cmd("create_ebook", CommandCategory.TASKS, "Crée un e-book sur [sujet] avec une couverture [style : or, bordeaux, vert, corail, clair]", tags = listOf("ebook", "livre", "couverture")),
 
         // 📱 Applications
         cmd("open_app", CommandCategory.APPS, "Ouvre {app}", apps = listOf("WhatsApp", "YouTube")),

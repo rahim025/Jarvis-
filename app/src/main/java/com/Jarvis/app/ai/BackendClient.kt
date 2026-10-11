@@ -65,6 +65,7 @@ sealed class JarvisAction {
     data class AutoReply(val mode: String, val contact: String, val app: String) : JarvisAction()
     /** « Garde la conversation avec cette personne » : lit la discussion ouverte à l'écran (voir ScreenChat). */
     data class KeepConversation(val contact: String) : JarvisAction()
+    data class CreateEbook(val topic: String, val author: String, val chapters: String, val style: String, val photo: String) : JarvisAction()
 }
 
 /** Un geste décidé par le cerveau pour jouer. x/y sont entre 0 et 1000 (0,0 = coin haut-gauche de l'écran). */
@@ -458,6 +459,10 @@ object BackendClient {
             args.optString("state").lowercase() in listOf("on", "true", "allume", "active", "1")
         )
         "show_commands" -> JarvisAction.ShowCommands(args.optString("filter"))
+        "create_ebook" -> JarvisAction.CreateEbook(
+            args.optString("topic"), args.optString("author"), args.optString("chapters"),
+            args.optString("style"), args.optString("photo")
+        )
         "keep_conversation" -> JarvisAction.KeepConversation(args.optString("contact"))
         "auto_reply" -> JarvisAction.AutoReply(
             args.optString("mode", "on").lowercase(), args.optString("contact"), args.optString("app")
