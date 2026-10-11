@@ -31,6 +31,15 @@ class VoiceManager(
     /** Appelé (sur le thread principal) juste après que Jarvis ait fini de parler. */
     var onSpeakDone: (() -> Unit)? = null
 
+    /** Appelé dès que l'utilisateur commence à parler, y compris pendant que Jarvis parle
+     *  (écoute "barge-in" lancée par startBargeInListening). Sert à couper la voix de Jarvis
+     *  immédiatement pour lui laisser la parole. */
+    var onUserStartedSpeaking: (() -> Unit)? = null
+
+    /** true pendant une écoute "barge-in" : on tolère un résultat vide (l'utilisateur n'a peut-être
+     *  rien dit) sans le remonter comme une vraie erreur à l'appelant. */
+    private var isBargeInListening = false
+
     /** Déroute temporairement un résultat/erreur ailleurs que vers les callbacks fixes du
      *  constructeur — utilisé par le portier d'appel entrant pour poser une question
      *  ponctuelle ("tu es disponible ?") sans toucher au câblage normal de la conversation. */
@@ -91,7 +100,9 @@ class VoiceManager(
 
             // Callbacks non utilisés mais requis par l'interface
             override fun onReadyForSpeech(params: Bundle?) {}
-            override fun onBeginningOfSpeech() {}
+            override fun onBeginningOfSpeech() {
+                mainHandler.post { onUserStartedSpeaking?.invoke() }
+            }
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() {}
@@ -153,7 +164,17 @@ class VoiceManager(
     /** Coupe une écoute en cours (utilisé quand on arrête la conversation). */
     fun stopListening() {
         isListening = false
+        isBargeInListening = false
         runCatching { speechRecognizer.cancel() }
+    }
+
+    /** Écoute lancée PENDANT que Jarvis parle, pour qu'il se taise dès que l'utilisateur
+     *  prend la parole (coupe-parole). onBeginningOfSpeech() déclenche onUserStartedSpeaking,
+     *  qui doit appeler stopSpeaking() côté appelant. */
+    fun startBargeInListening() {
+        if (isDestroyed || isListening) return
+        isBargeInListening = true
+        startListening()
     }
 
     fun speak(text: String) {
