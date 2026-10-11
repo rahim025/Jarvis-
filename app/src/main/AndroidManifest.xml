@@ -51,6 +51,24 @@
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <!-- Atelier e-book : écran de progression style JARVIS (« Crée un e-book sur… »). -->
+        <activity
+            android:name=".EbookActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.DayNight.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- Partage de l'EPUB / de la couverture vers une autre application. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- Écran « Conversations » : réponses automatiques + mémoire de chaque contact. -->
         <activity
             android:name=".ConversationsActivity"
