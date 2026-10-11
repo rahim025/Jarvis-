@@ -68,6 +68,11 @@ class JarvisConversationController(
         voiceManager.onSpeakDone = {
             if (conversationActive) startListeningRound() else onAvatarState("idle")
         }
+        // Coupe-parole : dès que l'utilisateur commence à parler (même pendant que Jarvis
+        // parle), on arrête immédiatement la voix de Jarvis pour le laisser s'exprimer.
+        voiceManager.onUserStartedSpeaking = {
+            if (conversationActive) voiceManager.stopSpeaking()
+        }
     }
 
     /** À appeler quand l'utilisateur active Jarvis (appui sur le micro, ou sur la bulle flottante). */
@@ -112,6 +117,9 @@ class JarvisConversationController(
             onAvatarState("idle")
         } else {
             voiceManager.speak(text)
+            // On écoute en parallèle pendant que Jarvis parle, pour pouvoir le couper
+            // si l'utilisateur prend la parole avant qu'il ait fini (coupe-parole).
+            voiceManager.startBargeInListening()
         }
     }
 
@@ -275,6 +283,10 @@ class JarvisConversationController(
         onAvatarState("listening")
         voiceManager.startListening()
     }
+
+    // Remarque : quand l'utilisateur coupe la parole à Jarvis (voir onUserStartedSpeaking),
+    // l'écoute "barge-in" déjà en cours capture directement sa phrase et la fait remonter par
+    // onVoiceResult -> handle(), donc aucune étape supplémentaire n'est nécessaire ici.
 
     /** "Bonjour <prénom>" ou "Bonsoir <prénom>" selon l'heure au Bénin (Africa/Porto-Novo, UTC+1).
      *  Le prénom vient de la mémoire (« retiens que je m'appelle… »), sinon "Monsieur". */

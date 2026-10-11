@@ -96,8 +96,10 @@ object CodeLauncher {
     private fun runJob(ctx: Context, request: String, language: String, name: String, mode: String) {
         val handler = Handler(Looper.getMainLooper())
         fun say(msg: String) = handler.post { Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show() }
+        var lastLogSeq = 0
         try {
             val id = CodeClient.start(ctx, request, language, name, mode)
+            say("C'est parti, je code le projet…")
             var fails = 0
             while (true) {
                 Thread.sleep(2500)
@@ -106,6 +108,18 @@ object CodeLauncher {
                 } catch (e: IOException) {
                     if (++fails > 40) throw CodeClient.CodeException("Connexion perdue avec le serveur. Relance la demande.")
                     continue
+                }
+                val log = st.optJSONArray("log")
+                if (log != null) {
+                    for (i in 0 until log.length()) {
+                        val entry = log.optJSONObject(i) ?: continue
+                        val n = entry.optInt("n", 0)
+                        if (n > lastLogSeq) {
+                            lastLogSeq = n
+                            val msg = entry.optString("msg", "")
+                            if (msg.isNotBlank()) say(msg)
+                        }
+                    }
                 }
                 when (st.optString("status")) {
                     "done" -> {
