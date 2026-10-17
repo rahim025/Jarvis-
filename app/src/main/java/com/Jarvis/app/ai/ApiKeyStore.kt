@@ -35,6 +35,13 @@ object ApiKeyStore {
     /** Alias Google qui pointe toujours vers le dernier modèle Flash (évite les noms périmés). */
     const val DEFAULT_GEMINI_MODEL = "gemini-flash-latest"
 
+    /** ElevenLabs sert uniquement à la voix de Jarvis (synthèse vocale). Sa clé reste sur le téléphone :
+     *  elle n'est jamais envoyée au backend. */
+    const val ELEVENLABS_ID = "elevenlabs"
+    const val DEFAULT_ELEVEN_MODEL = "eleven_flash_v2_5"
+    /** Voix prédéfinie ElevenLabs (utilisable aussi avec un compte gratuit). À remplacer par ton Voice ID. */
+    const val DEFAULT_ELEVEN_VOICE = "21m00Tcm4TlvDq8ikWAM"
+
     private const val FILE = "jarvis_api_keys"
     @Volatile private var cached: SharedPreferences? = null
 
@@ -82,7 +89,15 @@ object ApiKeyStore {
     fun getModel(ctx: Context, id: String): String {
         val saved = prefs(ctx).getString("model_$id", "") ?: ""
         if (id == GEMINI_ID) return saved.ifBlank { DEFAULT_GEMINI_MODEL }
+        if (id == ELEVENLABS_ID) return saved.ifBlank { DEFAULT_ELEVEN_MODEL }
         return saved.ifBlank { PROVIDERS.firstOrNull { it.id == id }?.defaultModel ?: "" }
+    }
+
+    fun getVoiceId(ctx: Context): String =
+        (prefs(ctx).getString("voice_$ELEVENLABS_ID", "") ?: "").ifBlank { DEFAULT_ELEVEN_VOICE }
+
+    fun setVoiceId(ctx: Context, voiceId: String) {
+        prefs(ctx).edit().putString("voice_$ELEVENLABS_ID", cleanKey(voiceId)).apply()
     }
 
     fun setModel(ctx: Context, id: String, model: String) {
