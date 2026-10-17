@@ -2,6 +2,8 @@ package com.jarvis.app.voice
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -11,7 +13,15 @@ import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
+import com.jarvis.app.ai.ApiKeyStore
 import com.jarvis.app.ai.UserProfile
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * Encapsule l'écoute vocale (Speech-to-Text) et la réponse vocale (Text-to-Speech).
@@ -27,6 +37,16 @@ class VoiceManager(
     private val mainHandler = Handler(Looper.getMainLooper())
     private var isListening = false
     private var isDestroyed = false
+
+    // --- Voix ElevenLabs (si une clé est saisie dans ⚙ > Clés API) ; sinon / en cas d'échec : voix Android ---
+    private val http = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+    private var player: MediaPlayer? = null
+    private var elevenCall: okhttp3.Call? = null
+    @Volatile private var elevenSpeaking = false
+    @Volatile private var speakToken = 0
 
     /** Appelé (sur le thread principal) juste après que Jarvis ait fini de parler. */
     var onSpeakDone: (() -> Unit)? = null
@@ -193,22 +213,112 @@ class VoiceManager(
     /** Tant que Jarvis parle, on relance l'écoute pour pouvoir entendre un "stop". */
     private fun rearmBargeInIfSpeaking() {
         mainHandler.postDelayed({
-            if (!isDestroyed && !isListening && tts?.isSpeaking == true) startBargeInListening()
+            if (!isDestroyed && !isListening && isSpeakingNow()) startBargeInListening()
         }, 300)
     }
 
+    /** true si Jarvis est en train de parler (voix ElevenLabs ou voix Android). */
+    fun isSpeakingNow(): Boolean = elevenSpeaking || tts?.isSpeaking == true
+
     fun speak(text: String) {
         if (isDestroyed) return
+        val key = ApiKeyStore.getKey(context, ApiKeyStore.ELEVENLABS_ID)
+        if (key.isBlank()) {
+            speakNative(text)
+            return
+        }
+        stopSpeaking() // coupe une réponse précédente encore en cours
+        val token = ++speakToken
+        elevenSpeaking = true
+        val voice = ApiKeyStore.getVoiceId(context)
+        val model = ApiKeyStore.getModel(context, ApiKeyStore.ELEVENLABS_ID)
+        Thread {
+            val file = runCatching { fetchEleven(text, key, voice, model) }.getOrNull()
+            mainHandler.post {
+                if (isDestroyed || token != speakToken) { file?.delete(); return@post }
+                if (file == null) {
+                    // Clé refusée, quota atteint, pas de réseau… : Jarvis reste audible avec la voix Android.
+                    elevenSpeaking = false
+                    speakNative(text)
+                } else {
+                    playFile(file, text)
+                }
+            }
+        }.start()
+    }
+
+    private fun speakNative(text: String) {
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis_reply")
+    }
+
+    /** Demande l'audio MP3 à ElevenLabs et le range dans le cache. null en cas d'erreur. */
+    private fun fetchEleven(text: String, key: String, voice: String, model: String): File? {
+        val body = JSONObject().put("text", text).put("model_id", model)
+            .toString().toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url("https://api.elevenlabs.io/v1/text-to-speech/$voice?output_format=mp3_44100_128")
+            .addHeader("xi-api-key", key)
+            .addHeader("Accept", "audio/mpeg")
+            .post(body)
+            .build()
+        val call = http.newCall(request)
+        elevenCall = call
+        call.execute().use { r ->
+            if (!r.isSuccessful) return null
+            val out = File.createTempFile("jarvis_tts_", ".mp3", context.cacheDir)
+            val stream = r.body?.byteStream() ?: return null
+            stream.use { input -> out.outputStream().use { input.copyTo(it) } }
+            return out
+        }
+    }
+
+    private fun playFile(file: File, text: String) {
+        val mp = MediaPlayer()
+        player = mp
+        try {
+            mp.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            mp.setDataSource(file.absolutePath)
+            mp.setOnPreparedListener { it.start() }
+            mp.setOnCompletionListener {
+                finishEleven(mp, file)
+                onSpeakDone?.invoke()
+            }
+            mp.setOnErrorListener { _, _, _ ->
+                finishEleven(mp, file)
+                speakNative(text)
+                true
+            }
+            mp.prepareAsync()
+        } catch (e: Exception) {
+            finishEleven(mp, file)
+            speakNative(text)
+        }
+    }
+
+    private fun finishEleven(mp: MediaPlayer, file: File) {
+        elevenSpeaking = false
+        if (player === mp) player = null
+        runCatching { mp.release() }
+        file.delete()
     }
 
     /** Coupe la voix de Jarvis immédiatement (bouton STOP). */
     fun stopSpeaking() {
+        speakToken++ // invalide toute synthèse ElevenLabs encore en route
+        runCatching { elevenCall?.cancel() }
+        elevenSpeaking = false
+        player?.let { p -> player = null; runCatching { p.stop() }; runCatching { p.release() } }
         runCatching { tts?.stop() }
     }
 
     fun destroy() {
         isDestroyed = true
+        stopSpeaking()
         runCatching { speechRecognizer.destroy() }
         tts?.shutdown()
     }
