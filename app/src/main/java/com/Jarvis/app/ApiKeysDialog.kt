@@ -31,18 +31,28 @@ object ApiKeysDialog {
 
     fun showList(activity: AppCompatActivity, onChanged: (String) -> Unit) {
         val active = ApiKeyStore.activeId(activity)
-        val ids = ApiKeyStore.PROVIDERS.map { it.id } + ApiKeyStore.GEMINI_ID
+        val ids = ApiKeyStore.PROVIDERS.map { it.id } + ApiKeyStore.GEMINI_ID + ApiKeyStore.ELEVENLABS_ID
         val entries = ids.map { id ->
             val isGemini = id == ApiKeyStore.GEMINI_ID
-            val name = if (isGemini) "Gemini" else ApiKeyStore.PROVIDERS.first { it.id == id }.label
+            val isEleven = id == ApiKeyStore.ELEVENLABS_ID
+            val name = when {
+                isGemini -> "Gemini"
+                isEleven -> "ElevenLabs"
+                else -> ApiKeyStore.PROVIDERS.first { it.id == id }.label
+            }
             val has = ApiKeyStore.hasKey(activity, id)
             val sub = when {
                 isGemini -> "vision d'écran + recherche web"
+                isEleven -> "voix de Jarvis"
                 has && id == active -> "cerveau actif"
                 else -> null
             }
             JarvisMenu.Entry(
-                icon = if (isGemini) android.R.drawable.ic_menu_view else android.R.drawable.ic_lock_lock,
+                icon = when {
+                    isGemini -> android.R.drawable.ic_menu_view
+                    isEleven -> android.R.drawable.ic_btn_speak_now
+                    else -> android.R.drawable.ic_lock_lock
+                },
                 title = name, sub = sub,
                 badge = if (has) "clé ok" else "pas de clé", badgeOn = has
             ) { showEdit(activity, id, onChanged) }
@@ -53,9 +63,14 @@ object ApiKeysDialog {
 
     private fun showEdit(activity: AppCompatActivity, id: String, onChanged: (String) -> Unit) {
         val isGemini = id == ApiKeyStore.GEMINI_ID
+        val isEleven = id == ApiKeyStore.ELEVENLABS_ID
         val isCustom = id == "custom"
         val provider = ApiKeyStore.PROVIDERS.firstOrNull { it.id == id }
-        val title = if (isGemini) "Gemini" else provider?.label ?: id
+        val title = when {
+            isGemini -> "Gemini"
+            isEleven -> "ElevenLabs"
+            else -> provider?.label ?: id
+        }
         val existing = ApiKeyStore.getKey(activity, id)
 
         val box = LinearLayout(activity).apply {
@@ -88,18 +103,35 @@ object ApiKeysDialog {
         box.addView(keyInput)
 
         val modelInput = EditText(activity).apply {
-            hint = provider?.defaultModel?.ifBlank { "nom du modèle" } ?: ApiKeyStore.DEFAULT_GEMINI_MODEL
+            hint = if (isEleven) ApiKeyStore.DEFAULT_ELEVEN_MODEL
+            else provider?.defaultModel?.ifBlank { "nom du modèle" } ?: ApiKeyStore.DEFAULT_GEMINI_MODEL
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             setText(ApiKeyStore.getModel(activity, id))
         }
-        box.addView(label(if (isGemini) "Modèle de vision / recherche web" else "Modèle"))
+        box.addView(label(
+            when {
+                isGemini -> "Modèle de vision / recherche web"
+                isEleven -> "Modèle vocal (eleven_flash_v2_5 = rapide, eleven_multilingual_v2 = plus expressif)"
+                else -> "Modèle"
+            }
+        ))
         box.addView(modelInput)
+
+        val voiceInput = EditText(activity).apply {
+            hint = ApiKeyStore.DEFAULT_ELEVEN_VOICE
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            setText(ApiKeyStore.getVoiceId(activity))
+        }
+        if (isEleven) {
+            box.addView(label("Voice ID (elevenlabs.io > Voices > ID de la voix)"))
+            box.addView(voiceInput)
+        }
 
         val useCheck = CheckBox(activity).apply {
             text = "Utiliser comme cerveau de Jarvis"
             isChecked = ApiKeyStore.activeId(activity).let { it == null || it == id }
         }
-        if (!isGemini) box.addView(useCheck)
+        if (!isGemini && !isEleven) box.addView(useCheck)
 
         val result = TextView(activity).apply {
             textSize = 13f
@@ -122,7 +154,8 @@ object ApiKeysDialog {
             result.text = "Test en cours…"
             Thread {
                 val model = modelInput.text.toString().trim()
-                val msg = runCatching { testKey(id, base, key, model) }.getOrElse { "Échec réseau : ${it.message}" }
+                val voice = voiceInput.text.toString().trim().ifBlank { ApiKeyStore.DEFAULT_ELEVEN_VOICE }
+                val msg = runCatching { testKey(id, base, key, model, voice) }.getOrElse { "Échec réseau : ${it.message}" }
                 activity.runOnUiThread { result.text = msg }
             }.start()
         }
@@ -134,7 +167,8 @@ object ApiKeysDialog {
                 val typed = ApiKeyStore.cleanKey(keyInput.text.toString())
                 if (typed.isNotBlank()) ApiKeyStore.setKey(activity, id, typed)
                 ApiKeyStore.setModel(activity, id, modelInput.text.toString())
-                if (!isGemini) {
+                if (isEleven) ApiKeyStore.setVoiceId(activity, voiceInput.text.toString())
+                if (!isGemini && !isEleven) {
                     if (isCustom) ApiKeyStore.setCustomBaseUrl(activity, urlInput.text.toString())
                     if (useCheck.isChecked && ApiKeyStore.hasKey(activity, id)) ApiKeyStore.setActive(activity, id)
                 }
@@ -149,8 +183,14 @@ object ApiKeysDialog {
     }
 
     /** Fait un tout petit appel réel au fournisseur : 200 = clé et modèle valides. */
-    private fun testKey(id: String, baseUrl: String, key: String, model: String): String {
-        val request = if (id == ApiKeyStore.GEMINI_ID) {
+    private fun testKey(id: String, baseUrl: String, key: String, model: String, voiceId: String = ""): String {
+        val request = if (id == ApiKeyStore.ELEVENLABS_ID) {
+            // Lecture de la voix choisie : ne consomme aucun crédit de synthèse.
+            Request.Builder()
+                .url("https://api.elevenlabs.io/v1/voices/${voiceId.ifBlank { ApiKeyStore.DEFAULT_ELEVEN_VOICE }}")
+                .addHeader("xi-api-key", key)
+                .build()
+        } else if (id == ApiKeyStore.GEMINI_ID) {
             Request.Builder()
                 .url("https://generativelanguage.googleapis.com/v1beta/models")
                 .addHeader("x-goog-api-key", key)
@@ -179,6 +219,8 @@ object ApiKeysDialog {
             }.getOrNull().orEmpty().take(160)
             return when {
                 r.isSuccessful -> "✓ Clé et modèle valides."
+                id == ApiKeyStore.ELEVENLABS_ID && r.code == 404 -> "✗ Voice ID introuvable : vérifie l'ID de la voix."
+                id == ApiKeyStore.ELEVENLABS_ID && (r.code == 401 || r.code == 403) -> "✗ Clé ElevenLabs refusée (${r.code}) : vérifie-la, ou ses permissions (Text to Speech + Voices en lecture)."
                 r.code == 401 || r.code == 403 -> "✗ Clé refusée (${r.code}) : vérifie-la, ou la région (api.minimax.io ≠ api.minimaxi.com)."
                 r.code == 404 || r.code == 400 -> "✗ Modèle ou URL incorrects (${r.code}) $detail"
                 r.code == 429 -> "⚠ Quota atteint (429) : la clé est bonne mais la limite est dépassée."
