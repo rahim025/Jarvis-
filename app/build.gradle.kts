@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.jarvis.app"
-    compileSdk = 34
+    compileSdk = 34 
 
     defaultConfig {
         applicationId = "com.jarvis.app"
