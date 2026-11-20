@@ -216,6 +216,9 @@ class MainActivity : AppCompatActivity() {
                     state = JarvisHandTrackingService.keyboardVisible) { toggleHandKeyboard() },
                 JarvisMenu.Entry(android.R.drawable.ic_menu_rotate, "Volant virtuel", "BB Racing, caméra",
                     state = JarvisWheelService.isRunning) { toggleWheel() },
+                JarvisMenu.Entry(android.R.drawable.ic_menu_preferences, "Réglages du volant", "sensibilité, recentrer") {
+                    WheelSettingsDialog.show(this)
+                },
                 JarvisMenu.Entry(android.R.drawable.ic_menu_mylocation, "Boutons de direction du jeu") { calibrateWheel() }
             )),
             JarvisMenu.Section("mémoire et IA", listOf(

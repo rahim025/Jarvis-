@@ -34,4 +34,16 @@ object WheelSettings {
     /** Angle (en degrés) dont il faut tourner le volant pour braquer à fond. Plus petit = plus nerveux. */
     fun lockDeg(c: Context): Int = prefs(c).getInt("lock_deg", DEFAULT_LOCK_DEG).coerceIn(15, 90)
     fun setLockDeg(c: Context, v: Int) = prefs(c).edit().putInt("lock_deg", v).apply()
+
+    /** Zone morte (degrés) autour du « tout droit » : en dessous, aucun appui. */
+    const val DEFAULT_DEADZONE_DEG = 8
+    fun deadzoneDeg(c: Context): Int = prefs(c).getInt("deadzone_deg", DEFAULT_DEADZONE_DEG).coerceIn(2, 20)
+    fun setDeadzoneDeg(c: Context, v: Int) = prefs(c).edit().putInt("deadzone_deg", v).apply()
+
+    /** Inverse gauche/droite si, sur ton téléphone, le sens est à l'envers. */
+    fun invert(c: Context): Boolean = prefs(c).getBoolean("invert", false)
+    fun setInvert(c: Context, v: Boolean) = prefs(c).edit().putBoolean("invert", v).apply()
+
+    fun reset(c: Context) = prefs(c).edit()
+        .remove("lock_deg").remove("deadzone_deg").remove("invert").apply()
 }

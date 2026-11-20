@@ -62,7 +62,7 @@ import kotlin.math.min
  * de direction GAUCHE ou DROITE du jeu, via JarvisAccessibilityService (vrais touchers).
  *
  *  - Les deux mains doivent être visibles : sinon, plus aucun appui (la voiture va tout droit).
- *  - Le « point mort » est pris automatiquement chaque fois que tes deux mains réapparaissent.
+ *  - Le « point mort » est pris une seule fois, quand tes deux mains apparaissent pour la première fois (tiens droit).
  *  - Un petit volant s'affiche en haut de l'écran et tourne comme le tien (rouge = mains perdues).
  *
  * Nécessite le modèle "hand_landmarker.task" dans assets (déjà utilisé par le curseur main).
@@ -77,14 +77,15 @@ class JarvisWheelService : Service(), LifecycleOwner {
             private set
 
         const val ACTION_CALIBRATE = "com.jarvis.app.WHEEL_CALIBRATE"
+        const val ACTION_RECENTER = "com.jarvis.app.WHEEL_RECENTER"
 
         private const val CHANNEL = "jarvis_wheel"
-        private const val SEG_MS = 120L          // durée d'un tronçon d'appui maintenu
-        private const val PERIOD_MS = 360L       // période du « pulsé » pour les petits braquages
-        private const val HOLD_AT = 0.7f         // au-delà de 70 % de braquage : appui continu
-        private const val DEADZONE_DEG = 5f
+        private const val SEG_MS = 80L          // durée d'un tronçon d'appui maintenu
+        private const val PERIOD_MS = 240L       // période du « pulsé » pour les petits braquages
+        private const val HOLD_AT = 0.5f         // au-delà de 50 % de braquage : appui continu
+        private const val MIN_DUTY = 0.25f      // un petit braquage doit quand même durer assez pour être pris en compte
         private const val ACQUIRE_FRAMES = 12    // images stables pour fixer le point mort
-        private const val LOST_FRAMES = 4
+        private const val LOST_FRAMES = 6
         private const val WATCHDOG_MS = 400L
         private const val PREVIEW_INTERVAL_MS = 60L
 
@@ -165,7 +166,14 @@ class JarvisWheelService : Service(), LifecycleOwner {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_CALIBRATE) scheduleCalibration()
+        when (intent?.action) {
+            ACTION_CALIBRATE -> scheduleCalibration()
+            ACTION_RECENTER -> {
+                // Nouveau « tout droit » : tiens ton volant droit, 1 seconde.
+                acquired = false; acquireFrames = 0; acquireSum = 0f; angleSm = 0f
+                injector.setDesired(0)
+            }
+        }
         return START_STICKY
     }
 
@@ -435,10 +443,13 @@ class JarvisWheelService : Service(), LifecycleOwner {
         val raw = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat()
 
         if (!acquired) {
+            // Point mort fixé UNE SEULE FOIS (voir onHandsLost) : on ne le recalcule plus quand une main sort du cadre.
             acquireSum += raw
             acquireFrames++
             if (acquireFrames >= ACQUIRE_FRAMES) {
                 neutral = acquireSum / acquireFrames
+                // Si les mains étaient visiblement penchées au démarrage, on prend l'horizontale comme point mort.
+                if (abs(neutral) > 20f) neutral = 0f
                 acquired = true
                 angleSm = 0f
             }
@@ -448,11 +459,15 @@ class JarvisWheelService : Service(), LifecycleOwner {
             return
         }
 
-        angleSm += ((raw - neutral) - angleSm) * 0.5f
-        val lock = WheelSettings.lockDeg(this).toFloat()
+        // Lissage adaptatif : calme quand tu tiens le volant, réactif quand tu tournes vite.
+        val target = (raw - neutral) * (if (WheelSettings.invert(this)) -1f else 1f)
+        val k = (0.3f + abs(target - angleSm) / 25f).coerceAtMost(0.8f)
+        angleSm += (target - angleSm) * k
+        val dz = WheelSettings.deadzoneDeg(this).toFloat()
+        val lock = WheelSettings.lockDeg(this).toFloat().coerceAtLeast(dz + 5f)
         val a = angleSm
-        val steer = if (abs(a) < DEADZONE_DEG) 0f
-        else (Math.signum(a) * (abs(a) - DEADZONE_DEG) / (lock - DEADZONE_DEG)).coerceIn(-1f, 1f)
+        val steer = if (abs(a) < dz) 0f
+        else (Math.signum(a) * (abs(a) - dz) / (lock - dz)).coerceIn(-1f, 1f)
 
         showWheel(a, steer, true)
         applySteer(steer, SystemClock.uptimeMillis())
@@ -464,10 +479,11 @@ class JarvisWheelService : Service(), LifecycleOwner {
     private fun onHandsLost(force: Boolean) {
         lostFrames++
         if (force || lostFrames >= LOST_FRAMES) {
-            acquired = false
-            acquireFrames = 0
-            acquireSum = 0f
+            // IMPORTANT : on lâche les boutons mais on GARDE le point mort (acquired / neutral).
+            // Avant, il était recalculé à chaque retour des mains, donc en plein virage il devenait
+            // le nouveau « tout droit » : tourner à gauche braquait à droite, etc.
             angleSm = 0f
+            if (!acquired) { acquireFrames = 0; acquireSum = 0f }
             injector.setDesired(0)
             showWheel(0f, 0f, false)
         }
@@ -487,7 +503,7 @@ class JarvisWheelService : Service(), LifecycleOwner {
         val mag = abs(steer)
         if (mag < 0.02f) { injector.setDesired(0); return }
         val side = if (steer < 0) -1 else 1
-        val duty = (mag / HOLD_AT).coerceAtMost(1f)
+        val duty = (mag / HOLD_AT).coerceIn(MIN_DUTY, 1f)
         val phase = (now % PERIOD_MS).toFloat() / PERIOD_MS
         injector.setDesired(if (phase < duty) side else 0)
     }
